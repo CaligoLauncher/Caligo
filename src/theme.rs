@@ -17,7 +17,7 @@ pub struct ThemePreset {
     pub background: [u8; 4],
     /// Accent color for selection/highlights/links, RGBA 0-255.
     pub accent: [u8; 4],
-    /// Background opacity, 0.0 (transparent) to 1.0 (opaque).
+    /// Panel opacity over the background image, 0.0 to 1.0.
     pub opacity: f32,
 }
 
@@ -26,10 +26,10 @@ impl Default for ThemePreset {
         Self {
             name: "Terra Dark".to_string(),
             dark: true,
-            rounding: 8.0,
-            background: [24, 26, 32, 255],
-            accent: [92, 156, 255, 255],
-            opacity: 1.0,
+            rounding: 10.0,
+            background: [15, 17, 21, 255],
+            accent: [86, 201, 121, 255],
+            opacity: 0.92,
         }
     }
 }
@@ -37,6 +37,41 @@ impl Default for ThemePreset {
 impl ThemePreset {
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str(json)
+    }
+
+    pub fn background_color(&self) -> egui::Color32 {
+        egui::Color32::from_rgb(self.background[0], self.background[1], self.background[2])
+    }
+
+    pub fn accent_color(&self) -> egui::Color32 {
+        egui::Color32::from_rgba_unmultiplied(
+            self.accent[0],
+            self.accent[1],
+            self.accent[2],
+            self.accent[3],
+        )
+    }
+
+    /// Заливка «стеклянных» панелей (титлбар, сайдбар) поверх размытого фона.
+    pub fn glass_fill(&self) -> egui::Color32 {
+        let a = (self.opacity.clamp(0.0, 1.0) * 210.0) as u8;
+        egui::Color32::from_rgba_unmultiplied(
+            self.background[0],
+            self.background[1],
+            self.background[2],
+            a,
+        )
+    }
+
+    /// Лёгкое затемнение центральной области — текст читается на любом фоне.
+    pub fn content_tint(&self) -> egui::Color32 {
+        let a = (self.opacity.clamp(0.0, 1.0) * 140.0) as u8;
+        egui::Color32::from_rgba_unmultiplied(
+            self.background[0],
+            self.background[1],
+            self.background[2],
+            a,
+        )
     }
 
     pub fn to_visuals(&self) -> egui::Visuals {
@@ -53,12 +88,7 @@ impl ThemePreset {
             self.background[2],
             alpha,
         );
-        let accent = egui::Color32::from_rgba_unmultiplied(
-            self.accent[0],
-            self.accent[1],
-            self.accent[2],
-            self.accent[3],
-        );
+        let accent = self.accent_color();
 
         v.panel_fill = bg;
         v.window_fill = bg;
