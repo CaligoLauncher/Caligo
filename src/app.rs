@@ -81,14 +81,14 @@ impl TerraLauncherApp {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.add_space(6.0);
                         if ui
-                            .add(egui::Button::new("❌").frame(false))
+                            .add(egui::Button::new("🗙").frame(false))
                             .on_hover_text("Закрыть")
                             .clicked()
                         {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                         }
                         if ui
-                            .add(egui::Button::new("⬜").frame(false))
+                            .add(egui::Button::new("🗖").frame(false))
                             .on_hover_text("Развернуть")
                             .clicked()
                         {
@@ -97,7 +97,7 @@ impl TerraLauncherApp {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
                         }
                         if ui
-                            .add(egui::Button::new("➖").frame(false))
+                            .add(egui::Button::new("🗕").frame(false))
                             .on_hover_text("Свернуть")
                             .clicked()
                         {
@@ -167,7 +167,9 @@ impl eframe::App for TerraLauncherApp {
                 ui.set_opacity(t);
                 ui.add_space((1.0 - t) * 12.0);
                 match self.tab {
-                    Tab::Play => ui::play::show(ui, &self.auth, &mut self.play, &self.launch),
+                    Tab::Play => {
+                        ui::play::show(ui, &self.theme, &self.auth, &mut self.play, &self.launch)
+                    }
                     Tab::Instances => ui::instances::show(ui),
                     Tab::Settings => ui::settings::show(ui, &mut self.settings, &mut self.theme),
                 }
