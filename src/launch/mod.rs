@@ -97,8 +97,13 @@ impl LaunchManager {
                     &state,
                     &ctx,
                     LaunchState::Failed(format!(
-                        "Установлена Java {} ({}), а для Minecraft {} нужна Java {}.\nУстанови её: winget install EclipseAdoptium.Temurin.{}.JDK — и перезапусти лаунчер",
-                        java.major, java.version_line, version.id, required, required
+                        "Найдена Java {} ({}) по пути {}, а для Minecraft {} нужна Java {}.\nУстанови её: winget install EclipseAdoptium.Temurin.{}.JDK — и перезапусти лаунчер",
+                        java.major,
+                        java.version_line,
+                        java.path.display(),
+                        version.id,
+                        required,
+                        required
                     )),
                 );
             }
@@ -106,9 +111,10 @@ impl LaunchManager {
                 return set_state(
                     &state,
                     &ctx,
-                    LaunchState::Failed(
-                        "Установлена 32-битная Java — ей не хватит памяти для игры.\nПоставь 64-битную Java 21 (Temurin JDK)".into(),
-                    ),
+                    LaunchState::Failed(format!(
+                        "Java по пути {} — 32-битная, ей не хватит памяти для игры.\nПоставь 64-битную Java 21 (Temurin JDK)",
+                        java.path.display()
+                    )),
                 );
             }
 
