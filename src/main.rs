@@ -1,5 +1,6 @@
 mod app;
 mod auth;
+mod launch;
 mod theme;
 mod ui;
 
