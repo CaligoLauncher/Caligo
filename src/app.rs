@@ -1,6 +1,7 @@
 use eframe::egui;
 
 use crate::auth::AuthManager;
+use crate::launch::LaunchManager;
 use crate::theme::ThemePreset;
 use crate::ui;
 
@@ -16,6 +17,8 @@ pub struct TerraLauncherApp {
     pub theme: ThemePreset,
     pub settings: ui::settings::SettingsState,
     pub auth: AuthManager,
+    pub launch: LaunchManager,
+    pub play: ui::play::PlayState,
 }
 
 impl TerraLauncherApp {
@@ -27,6 +30,8 @@ impl TerraLauncherApp {
             theme,
             settings: Default::default(),
             auth: Default::default(),
+            launch: Default::default(),
+            play: Default::default(),
         }
     }
 }
@@ -48,7 +53,7 @@ impl eframe::App for TerraLauncherApp {
             });
 
         egui::CentralPanel::default().show(ctx, |ui| match self.tab {
-            Tab::Play => ui::play::show(ui, &self.auth),
+            Tab::Play => ui::play::show(ui, &self.auth, &mut self.play, &self.launch),
             Tab::Instances => ui::instances::show(ui),
             Tab::Settings => ui::settings::show(ui, &mut self.settings, &mut self.theme),
         });
