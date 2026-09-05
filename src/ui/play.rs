@@ -214,10 +214,10 @@ fn selected_version(play: &PlayState, launch: &LaunchManager) -> Option<Manifest
         .filter(|v| v.kind == "release")
         .cloned()
         .collect();
-    let selected_id = play
-        .selected_version
-        .clone()
-        .unwrap_or_else(|| releases.first()?.id.clone());
+    let selected_id = match play.selected_version.clone() {
+        Some(id) => id,
+        None => releases.first()?.id.clone(),
+    };
     releases.iter().find(|v| v.id == selected_id).cloned()
 }
 
