@@ -24,7 +24,7 @@ pub struct ThemePreset {
 impl Default for ThemePreset {
     fn default() -> Self {
         Self {
-            name: "Terra Dark".to_string(),
+            name: "Caligo Dark".to_string(),
             dark: true,
             rounding: 10.0,
             background: [15, 17, 21, 255],
