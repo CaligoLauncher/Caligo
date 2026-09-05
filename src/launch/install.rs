@@ -19,14 +19,14 @@ pub struct Prepared {
     pub game_dir: PathBuf,
 }
 
-/// Game data directory: %APPDATA%\.terra-launcher on Windows.
+/// Game data directory: %APPDATA%\.caligo on Windows.
 pub fn game_dir() -> PathBuf {
     if let Ok(appdata) = std::env::var("APPDATA") {
-        PathBuf::from(appdata).join(".terra-launcher")
+        PathBuf::from(appdata).join(".caligo")
     } else if let Ok(home) = std::env::var("HOME") {
-        PathBuf::from(home).join(".terra-launcher")
+        PathBuf::from(home).join(".caligo")
     } else {
-        PathBuf::from(".terra-launcher")
+        PathBuf::from(".caligo")
     }
 }
 
