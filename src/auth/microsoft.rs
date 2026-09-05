@@ -11,10 +11,13 @@ use super::{AuthState, MinecraftAccount};
 
 /// Azure application (client) ID for the OAuth device-code flow.
 ///
-/// Set at build time: `TERRA_MS_CLIENT_ID=<guid> cargo build`.
+/// Set at build time: `CALIGO_MS_CLIENT_ID=<guid> cargo build` (старое имя TERRA_MS_CLIENT_ID тоже работает).
 /// Registering the Azure app is free, but calling the Minecraft API with it
 /// additionally requires approval from Mojang (see README).
-pub const CLIENT_ID: Option<&str> = option_env!("TERRA_MS_CLIENT_ID");
+pub const CLIENT_ID: Option<&str> = match option_env!("CALIGO_MS_CLIENT_ID") {
+    Some(id) => Some(id),
+    None => option_env!("TERRA_MS_CLIENT_ID"),
+};
 
 const DEVICE_CODE_URL: &str =
     "https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode";
@@ -72,7 +75,7 @@ pub async fn login(
 ) -> Result<MinecraftAccount, String> {
     let client_id = CLIENT_ID
         .filter(|id| !id.is_empty())
-        .ok_or("Не задан TERRA_MS_CLIENT_ID — см. README, раздел про Azure-приложение")?;
+        .ok_or("Не задан CALIGO_MS_CLIENT_ID — см. README, раздел про Azure-приложение")?;
 
     let http = reqwest::Client::new();
 
