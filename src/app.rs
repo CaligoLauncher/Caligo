@@ -9,13 +9,32 @@ use crate::theme::ThemePreset;
 use crate::ui;
 
 const TITLEBAR_H: f32 = 36.0;
-const SIDEBAR_W: f32 = 64.0;
+/// Ширина зоны сайдбара (панель + отступы вокруг «плавающей» карточки).
+const SIDEBAR_W: f32 = 72.0;
+const SIDEBAR_CARD_W: f32 = 56.0;
+const SIDEBAR_MARGIN: f32 = 8.0;
+const SIDEBAR_ROUNDING: f32 = 18.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
     Play,
     Instances,
     Settings,
+}
+
+/// «Плавающая» скруглённая карточка левого меню (не на всю высоту,
+/// с отступами от краёв окна — без ровных системных краёв).
+fn sidebar_card_rect(screen: egui::Rect) -> egui::Rect {
+    egui::Rect::from_min_size(
+        egui::pos2(
+            screen.min.x + SIDEBAR_MARGIN,
+            screen.min.y + TITLEBAR_H + SIDEBAR_MARGIN,
+        ),
+        egui::vec2(
+            SIDEBAR_CARD_W,
+            screen.height() - TITLEBAR_H - 2.0 * SIDEBAR_MARGIN,
+        ),
+    )
 }
 
 pub struct CaligoApp {
@@ -55,13 +74,14 @@ impl CaligoApp {
         }
     }
 
-    /// Кастомный титлбар: своё окно без системной рамки, перетаскивание,
-    /// кнопки свернуть / развернуть / закрыть.
+    /// Кастомный титлбар: полностью прозрачный, без подложки и краёв —
+    /// только название и кнопки поверх фона.
     fn show_titlebar(&mut self, ctx: &egui::Context) {
         let accent = self.theme.accent_color();
         egui::TopBottomPanel::top("titlebar")
             .exact_height(TITLEBAR_H)
-            .frame(egui::Frame::none().fill(self.theme.glass_fill()))
+            .frame(egui::Frame::none())
+            .show_separator_line(false)
             .show(ctx, |ui| {
                 let bar_rect = ui.max_rect();
                 // Сначала зона перетаскивания, потом кнопки — кнопки выше по
@@ -76,7 +96,7 @@ impl CaligoApp {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
                 }
                 ui.horizontal_centered(|ui| {
-                    ui.add_space(12.0);
+                    ui.add_space(14.0);
                     ui.label(egui::RichText::new("Caligo").strong().color(accent));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.add_space(6.0);
@@ -108,28 +128,38 @@ impl CaligoApp {
             });
     }
 
-    /// Узкий сайдбар с иконками вместо текстового меню.
+    /// Левое меню — «плавающая» скруглённая карточка с иконками.
     fn show_sidebar(&mut self, ctx: &egui::Context) {
         let accent = self.theme.accent_color();
         let mut clicked: Option<Tab> = None;
         egui::SidePanel::left("nav")
             .resizable(false)
             .exact_width(SIDEBAR_W)
-            .frame(egui::Frame::none().fill(self.theme.glass_fill()))
+            .frame(egui::Frame::none())
+            .show_separator_line(false)
             .show(ctx, |ui| {
-                ui.add_space(14.0);
-                ui.vertical_centered(|ui| {
-                    for (tab, icon, label) in [
-                        (Tab::Play, "▶", "Играть"),
-                        (Tab::Instances, "📦", "Сборки"),
-                        (Tab::Settings, "⚙", "Настройки"),
-                    ] {
-                        if nav_button(ui, self.tab == tab, icon, label, accent).clicked() {
-                            clicked = Some(tab);
-                        }
-                        ui.add_space(6.0);
+                let card = sidebar_card_rect(ctx.screen_rect());
+                ui.painter().rect_filled(
+                    card,
+                    egui::Rounding::same(SIDEBAR_ROUNDING),
+                    self.theme.glass_fill(),
+                );
+                let mut card_ui = ui.new_child(
+                    egui::UiBuilder::new()
+                        .max_rect(card)
+                        .layout(egui::Layout::top_down(egui::Align::Center)),
+                );
+                card_ui.add_space(14.0);
+                for (tab, icon, label) in [
+                    (Tab::Play, "▶", "Играть"),
+                    (Tab::Instances, "📦", "Сборки"),
+                    (Tab::Settings, "⚙", "Настройки"),
+                ] {
+                    if nav_button(&mut card_ui, self.tab == tab, icon, label, accent).clicked() {
+                        clicked = Some(tab);
                     }
-                });
+                    card_ui.add_space(6.0);
+                }
             });
         if let Some(tab) = clicked {
             self.switch_tab(tab);
@@ -140,14 +170,14 @@ impl CaligoApp {
 impl eframe::App for CaligoApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let screen = ctx.screen_rect();
-        // Зоны «стекла»: под титлбаром и сайдбаром рисуется размытый срез фона.
-        let titlebar =
-            egui::Rect::from_min_size(screen.min, egui::vec2(screen.width(), TITLEBAR_H));
-        let sidebar = egui::Rect::from_min_size(
-            egui::pos2(screen.min.x, screen.min.y + TITLEBAR_H),
-            egui::vec2(SIDEBAR_W, screen.height() - TITLEBAR_H),
+        // «Стекло» теперь только под карточкой сайдбара: титлбар полностью
+        // прозрачный, размытый срез фона рисуется со скруглением карточки.
+        let card = sidebar_card_rect(screen);
+        self.background.paint(
+            ctx,
+            &self.theme,
+            &[(card, egui::Rounding::same(SIDEBAR_ROUNDING))],
         );
-        self.background.paint(ctx, &self.theme, &[titlebar, sidebar]);
 
         self.show_titlebar(ctx);
         self.show_sidebar(ctx);
@@ -204,7 +234,7 @@ fn nav_button(
         ui.painter()
             .rect_filled(rect, rounding, accent.gamma_multiply(0.22));
         let bar = egui::Rect::from_min_size(
-            egui::pos2(rect.min.x - 9.0, rect.min.y + 12.0),
+            egui::pos2(rect.min.x - 5.0, rect.min.y + 12.0),
             egui::vec2(3.0, 22.0),
         );
         ui.painter().rect_filled(bar, egui::Rounding::same(2.0), accent);
