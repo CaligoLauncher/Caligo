@@ -1,7 +1,7 @@
 //! Фоновое изображение и «фальш-стекло».
 //!
 //! Из одной картинки готовятся две текстуры: обычная и заранее размытая.
-//! Панели (титлбар, сайдбар) рисуются поверх среза размытой версии —
+//! Панели рисуются поверх среза размытой версии (с нужным скруглением) —
 //! на статичном фоне это неотличимо от настоящего live-blur.
 //! Настоящий blur-шейдер (wgpu) — апгрейд на этапе финальной полировки.
 
@@ -50,8 +50,14 @@ impl Background {
         }
     }
 
-    /// Рисует фон на весь экран и размытые срезы под «стеклянными» зонами.
-    pub fn paint(&self, ctx: &egui::Context, theme: &ThemePreset, glass_rects: &[egui::Rect]) {
+    /// Рисует фон на весь экран и размытые срезы (с закруглениями)
+    /// под «стеклянными» зонами.
+    pub fn paint(
+        &self,
+        ctx: &egui::Context,
+        theme: &ThemePreset,
+        glass_rects: &[(egui::Rect, egui::Rounding)],
+    ) {
         let painter = ctx.layer_painter(egui::LayerId::background());
         let screen = ctx.screen_rect();
         let (Some(normal), Some(blurred)) = (&self.normal, &self.blurred) else {
@@ -63,10 +69,18 @@ impl Background {
         };
         let uv = cover_uv(normal.size_vec2(), screen);
         painter.image(normal.id(), screen, uv, egui::Color32::WHITE);
-        for rect in glass_rects {
+        for (rect, rounding) in glass_rects {
             let rect = rect.intersect(screen);
             if rect.is_positive() {
-                painter.image(blurred.id(), rect, sub_uv(uv, screen, rect), egui::Color32::WHITE);
+                let mut shape = egui::epaint::RectShape::new(
+                    rect,
+                    *rounding,
+                    egui::Color32::WHITE,
+                    egui::Stroke::NONE,
+                );
+                shape.fill_texture_id = blurred.id();
+                shape.uv = sub_uv(uv, screen, rect);
+                painter.add(shape);
             }
         }
     }
