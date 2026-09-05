@@ -39,7 +39,7 @@ pub fn build_command(prepared: &Prepared, profile: &LaunchProfile) -> Result<Com
         ("${user_type}", "msa".into()),
         ("${version_type}", v.kind.clone()),
         ("${natives_directory}", natives.display().to_string()),
-        ("${launcher_name}", "TerraLauncher".into()),
+        ("${launcher_name}", "Caligo".into()),
         ("${launcher_version}", env!("CARGO_PKG_VERSION").into()),
         ("${classpath}", classpath.clone()),
     ];
