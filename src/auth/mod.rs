@@ -6,8 +6,12 @@ use std::sync::{Arc, Mutex};
 #[derive(Debug, Clone)]
 pub struct MinecraftAccount {
     pub username: String,
+    // uuid and access_token are not read yet — they will be used at game
+    // launch (next stage), so silence dead_code until then.
+    #[allow(dead_code)]
     pub uuid: String,
     /// Minecraft services access token — will be used to launch the game.
+    #[allow(dead_code)]
     pub access_token: String,
 }
 
