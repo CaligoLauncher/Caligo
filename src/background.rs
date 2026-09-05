@@ -25,7 +25,7 @@ impl Background {
     }
 
     /// Ищет background.(png|jpg|jpeg) в папке данных лаунчера
-    /// (APPDATA/.terra-launcher) и готовит обычную + размытую текстуры.
+    /// (APPDATA/.caligo) и готовит обычную + размытую текстуры.
     pub fn load(ctx: &egui::Context) -> Self {
         let Some(path) = find_background() else {
             return Self::empty();
