@@ -1,7 +1,9 @@
 //! Building the Java command line (JVM + game args) and finding Java.
 
+use std::collections::VecDeque;
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use super::install::Prepared;
 use super::manifest::{rules_allow, ArgEntry, ArgValue};
@@ -10,6 +12,14 @@ pub struct LaunchProfile {
     pub username: String,
     pub uuid: String,
     pub access_token: String,
+}
+
+/// Что за Java установлена у пользователя.
+pub struct JavaInfo {
+    pub path: PathBuf,
+    pub major: u32,
+    pub is_64bit: bool,
+    pub version_line: String,
 }
 
 pub fn build_command(prepared: &Prepared, profile: &LaunchProfile) -> Result<Command, String> {
@@ -74,7 +84,10 @@ pub fn build_command(prepared: &Prepared, profile: &LaunchProfile) -> Result<Com
     cmd.args(&jvm_args)
         .arg(&v.main_class)
         .args(&game_args)
-        .current_dir(dir);
+        .current_dir(dir)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    hide_console(&mut cmd);
     Ok(cmd)
 }
 
@@ -92,14 +105,101 @@ fn push_arg(out: &mut Vec<String>, entry: &ArgEntry, subst: &impl Fn(&str) -> St
     }
 }
 
-/// JAVA_HOME first, then javaw/java from PATH.
+/// JAVA_HOME first, then java from PATH. Мы всегда используем java.exe
+/// (не javaw): консольное окно прячем флагом CREATE_NO_WINDOW, зато
+/// stdout/stderr можно перехватить и показать настоящую ошибку.
 fn find_java() -> PathBuf {
-    let exe = if cfg!(windows) { "javaw.exe" } else { "java" };
+    let exe = if cfg!(windows) { "java.exe" } else { "java" };
     if let Ok(home) = std::env::var("JAVA_HOME") {
         let p = Path::new(&home).join("bin").join(exe);
         if p.exists() {
             return p;
         }
     }
-    PathBuf::from(if cfg!(windows) { "javaw" } else { "java" })
+    PathBuf::from("java")
+}
+
+/// Не показывать чёрное консольное окно на Windows.
+fn hide_console(cmd: &mut Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = cmd;
+    }
+}
+
+/// Запускает `java -version` и разбирает, что за Java установлена.
+pub fn check_java() -> Result<JavaInfo, String> {
+    let path = find_java();
+    let mut cmd = Command::new(&path);
+    cmd.arg("-version").stdout(Stdio::piped()).stderr(Stdio::piped());
+    hide_console(&mut cmd);
+    let out = cmd.output().map_err(|e| {
+        format!("Java не найдена ({e}). Установи Java 21 (например, Temurin JDK) или задай JAVA_HOME")
+    })?;
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stderr),
+        String::from_utf8_lossy(&out.stdout)
+    );
+    let version_line = text.lines().next().unwrap_or("").trim().to_string();
+    let major = parse_major(&text)
+        .ok_or_else(|| format!("Не удалось разобрать версию Java: {version_line}"))?;
+    let is_64bit = text.contains("64-Bit");
+    Ok(JavaInfo {
+        path,
+        major,
+        is_64bit,
+        version_line,
+    })
+}
+
+/// Первый токен в кавычках: `"21.0.2"` -> 21, `"1.8.0_391"` -> 8, `"17"` -> 17.
+fn parse_major(text: &str) -> Option<u32> {
+    let start = text.find('"')? + 1;
+    let end = start + text[start..].find('"')?;
+    let ver = &text[start..end];
+    let mut parts = ver.split(['.', '_', '-', '+']);
+    let first: u32 = parts.next()?.parse().ok()?;
+    if first == 1 {
+        parts.next()?.parse().ok()
+    } else {
+        Some(first)
+    }
+}
+
+/// Читает поток построчно в фоне, храня последние `keep` строк.
+pub fn spawn_tail_reader<R: std::io::Read + Send + 'static>(
+    reader: Option<R>,
+    keep: usize,
+) -> std::thread::JoinHandle<Vec<String>> {
+    std::thread::spawn(move || {
+        let mut tail: VecDeque<String> = VecDeque::new();
+        if let Some(r) = reader {
+            for line in BufReader::new(r).lines().map_while(Result::ok) {
+                if tail.len() >= keep {
+                    tail.pop_front();
+                }
+                tail.push_back(line);
+            }
+        }
+        tail.into_iter().collect()
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_major;
+
+    #[test]
+    fn parses_modern_and_legacy_versions() {
+        assert_eq!(parse_major(r#"openjdk version "21.0.2" 2024-01-16"#), Some(21));
+        assert_eq!(parse_major(r#"java version "1.8.0_391""#), Some(8));
+        assert_eq!(parse_major(r#"openjdk version "17" 2021-09-14"#), Some(17));
+    }
 }
