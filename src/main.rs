@@ -1,5 +1,6 @@
 mod app;
 mod auth;
+mod background;
 mod launch;
 mod theme;
 mod ui;
@@ -9,8 +10,9 @@ use eframe::egui;
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([960.0, 600.0])
-            .with_min_inner_size([640.0, 400.0])
+            .with_inner_size([1000.0, 620.0])
+            .with_min_inner_size([720.0, 440.0])
+            .with_decorations(false)
             .with_title("Terra Launcher"),
         ..Default::default()
     };
