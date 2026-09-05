@@ -78,6 +78,40 @@ impl LaunchManager {
                 Ok(p) => p,
                 Err(e) => return set_state(&state, &ctx, LaunchState::Failed(e)),
             };
+
+            // Проверяем Java ДО запуска: иначе JVM молча падает с
+            // «Could not create the Java Virtual Machine».
+            let required = prepared
+                .version_json
+                .java_version
+                .as_ref()
+                .map(|j| j.major_version)
+                .unwrap_or(21);
+            set_state(&state, &ctx, LaunchState::Preparing("Проверяю Java…".into()));
+            let java = match run::check_java() {
+                Ok(j) => j,
+                Err(e) => return set_state(&state, &ctx, LaunchState::Failed(e)),
+            };
+            if java.major < required {
+                return set_state(
+                    &state,
+                    &ctx,
+                    LaunchState::Failed(format!(
+                        "Установлена Java {} ({}), а для Minecraft {} нужна Java {}.\nУстанови её: winget install EclipseAdoptium.Temurin.{}.JDK — и перезапусти лаунчер",
+                        java.major, java.version_line, version.id, required, required
+                    )),
+                );
+            }
+            if !java.is_64bit {
+                return set_state(
+                    &state,
+                    &ctx,
+                    LaunchState::Failed(
+                        "Установлена 32-битная Java — ей не хватит памяти для игры.\nПоставь 64-битную Java 21 (Temurin JDK)".into(),
+                    ),
+                );
+            }
+
             let mut cmd = match run::build_command(&prepared, &profile) {
                 Ok(c) => c,
                 Err(e) => return set_state(&state, &ctx, LaunchState::Failed(e)),
@@ -86,12 +120,40 @@ impl LaunchManager {
             match cmd.spawn() {
                 Ok(mut child) => {
                     set_state(&state, &ctx, LaunchState::Running);
+                    let out_tail = run::spawn_tail_reader(child.stdout.take(), 40);
+                    let err_tail = run::spawn_tail_reader(child.stderr.take(), 40);
                     match child.wait() {
-                        Ok(status) => set_state(
-                            &state,
-                            &ctx,
-                            LaunchState::Exited(status.code().unwrap_or(-1)),
-                        ),
+                        Ok(status) => {
+                            let code = status.code().unwrap_or(-1);
+                            if code == 0 {
+                                set_state(&state, &ctx, LaunchState::Exited(code));
+                            } else {
+                                let err_lines = err_tail.join().unwrap_or_default();
+                                let out_lines = out_tail.join().unwrap_or_default();
+                                let tail: Vec<String> = if !err_lines.is_empty() {
+                                    err_lines
+                                } else {
+                                    out_lines
+                                };
+                                let last: Vec<&str> = tail
+                                    .iter()
+                                    .rev()
+                                    .take(8)
+                                    .map(|s| s.as_str())
+                                    .collect::<Vec<_>>()
+                                    .into_iter()
+                                    .rev()
+                                    .collect();
+                                set_state(
+                                    &state,
+                                    &ctx,
+                                    LaunchState::Failed(format!(
+                                        "Игра завершилась с ошибкой (код {code}).\n{}",
+                                        last.join("\n")
+                                    )),
+                                );
+                            }
+                        }
                         Err(e) => set_state(
                             &state,
                             &ctx,
@@ -100,17 +162,11 @@ impl LaunchManager {
                     }
                 }
                 Err(e) => {
-                    let major = prepared
-                        .version_json
-                        .java_version
-                        .as_ref()
-                        .map(|j| j.major_version)
-                        .unwrap_or(21);
                     set_state(
                         &state,
                         &ctx,
                         LaunchState::Failed(format!(
-                            "Не удалось запустить Java: {e}. Установи Java {major} (например, Temurin JDK) или задай JAVA_HOME"
+                            "Не удалось запустить Java: {e}. Установи Java {required} (например, Temurin JDK) или задай JAVA_HOME"
                         )),
                     );
                 }
