@@ -28,7 +28,7 @@ impl Default for ThemePreset {
             dark: true,
             rounding: 10.0,
             background: [15, 17, 21, 255],
-            accent: [86, 201, 121, 255],
+            accent: [59, 130, 246, 255],
             opacity: 0.92,
         }
     }
@@ -52,7 +52,7 @@ impl ThemePreset {
         )
     }
 
-    /// Заливка «стеклянных» панелей (титлбар, сайдбар) поверх размытого фона.
+    /// Заливка «стеклянных» панелей поверх размытого фона.
     pub fn glass_fill(&self) -> egui::Color32 {
         let a = (self.opacity.clamp(0.0, 1.0) * 210.0) as u8;
         egui::Color32::from_rgba_unmultiplied(
