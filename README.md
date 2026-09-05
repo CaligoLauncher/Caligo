@@ -1,4 +1,4 @@
-# Terra Launcher
+# Caligo
 
 A custom Minecraft launcher written in Rust.
 
