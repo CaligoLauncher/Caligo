@@ -18,7 +18,7 @@ pub enum Tab {
     Settings,
 }
 
-pub struct TerraLauncherApp {
+pub struct CaligoApp {
     pub tab: Tab,
     pub theme: ThemePreset,
     pub settings: ui::settings::SettingsState,
@@ -30,7 +30,7 @@ pub struct TerraLauncherApp {
     tab_switched_at: Instant,
 }
 
-impl TerraLauncherApp {
+impl CaligoApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let theme = ThemePreset::default();
         theme.apply(&cc.egui_ctx);
@@ -77,7 +77,7 @@ impl TerraLauncherApp {
                 }
                 ui.horizontal_centered(|ui| {
                     ui.add_space(12.0);
-                    ui.label(egui::RichText::new("Terra Launcher").strong().color(accent));
+                    ui.label(egui::RichText::new("Caligo").strong().color(accent));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.add_space(6.0);
                         if ui
@@ -137,7 +137,7 @@ impl TerraLauncherApp {
     }
 }
 
-impl eframe::App for TerraLauncherApp {
+impl eframe::App for CaligoApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let screen = ctx.screen_rect();
         // Зоны «стекла»: под титлбаром и сайдбаром рисуется размытый срез фона.
