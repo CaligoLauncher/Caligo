@@ -47,6 +47,25 @@ fn set_state(state: &Arc<Mutex<AuthState>>, ctx: &egui::Context, new: AuthState)
     ctx.request_repaint();
 }
 
+/// Extract a human-friendly error out of an AAD error response body,
+/// e.g. `{"error":"invalid_client","error_description":"AADSTS700016: ..."}`.
+fn aad_error_hint(body: &str) -> String {
+    let parsed: Option<serde_json::Value> = serde_json::from_str(body).ok();
+    if let Some(v) = parsed {
+        let code = v["error"].as_str().unwrap_or("");
+        let desc = v["error_description"]
+            .as_str()
+            .and_then(|d| d.lines().next())
+            .unwrap_or("");
+        if !code.is_empty() || !desc.is_empty() {
+            return format!("{code}: {desc}");
+        }
+    }
+    let mut s = body.to_string();
+    s.truncate(300);
+    s
+}
+
 pub async fn login(
     state: &Arc<Mutex<AuthState>>,
     ctx: &egui::Context,
@@ -59,17 +78,22 @@ pub async fn login(
 
     // 1. Request a device code.
     set_state(state, ctx, AuthState::InProgress("Запрашиваю код входа…".into()));
-    let device: DeviceCodeResponse = http
+    let resp = http
         .post(DEVICE_CODE_URL)
         .form(&[("client_id", client_id), ("scope", SCOPE)])
         .send()
         .await
-        .map_err(|e| format!("Сеть: {e}"))?
-        .error_for_status()
-        .map_err(|e| format!("Device code: {e}"))?
-        .json()
+        .map_err(|e| format!("Сеть: {e}"))?;
+    let status = resp.status();
+    let body = resp
+        .text()
         .await
         .map_err(|e| format!("Ответ device code: {e}"))?;
+    if !status.is_success() {
+        return Err(format!("Device code ({status}): {}", aad_error_hint(&body)));
+    }
+    let device: DeviceCodeResponse =
+        serde_json::from_str(&body).map_err(|e| format!("Ответ device code: {e}"))?;
 
     // 2. Show the code to the user and poll until they sign in.
     set_state(
