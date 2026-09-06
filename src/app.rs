@@ -6,6 +6,7 @@ use crate::auth::AuthManager;
 use crate::background::Background;
 use crate::effects::Mist;
 use crate::launch::LaunchManager;
+use crate::skin::SkinManager;
 use crate::theme::ThemePreset;
 use crate::ui;
 
@@ -44,6 +45,22 @@ fn mix(a: egui::Color32, b: egui::Color32, t: f32) -> egui::Color32 {
     egui::Color32::from_rgb(l(a.r(), b.r()), l(a.g(), b.g()), l(a.b(), b.b()))
 }
 
+/// Подключает фирменный шрифт Manrope (открытая лицензия OFL, есть
+/// кириллица). Штатные шрифты egui остаются фолбэком для иконок/эмодзи.
+fn install_fonts(ctx: &egui::Context) {
+    let mut fonts = egui::FontDefinitions::default();
+    fonts.font_data.insert(
+        "manrope".to_owned(),
+        egui::FontData::from_static(include_bytes!("../assets/fonts/Manrope.ttf")),
+    );
+    fonts
+        .families
+        .get_mut(&egui::FontFamily::Proportional)
+        .unwrap()
+        .insert(0, "manrope".to_owned());
+    ctx.set_fonts(fonts);
+}
+
 pub struct CaligoApp {
     pub tab: Tab,
     pub theme: ThemePreset,
@@ -51,6 +68,7 @@ pub struct CaligoApp {
     pub auth: AuthManager,
     pub launch: LaunchManager,
     pub play: ui::play::PlayState,
+    pub skin: SkinManager,
     background: Background,
     mist: Mist,
     started_at: Instant,
@@ -59,6 +77,7 @@ pub struct CaligoApp {
 
 impl CaligoApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        install_fonts(&cc.egui_ctx);
         let theme = ThemePreset::default();
         theme.apply(&cc.egui_ctx);
         let background = Background::load(&cc.egui_ctx);
@@ -69,6 +88,7 @@ impl CaligoApp {
             auth: Default::default(),
             launch: Default::default(),
             play: Default::default(),
+            skin: Default::default(),
             background,
             mist: Mist::new(),
             started_at: Instant::now(),
@@ -212,10 +232,15 @@ impl eframe::App for CaligoApp {
                 ui.set_opacity(t);
                 ui.add_space((1.0 - t) * 12.0);
                 match self.tab {
-                    Tab::Play => {
-                        ui::play::show(ui, &self.theme, &self.auth, &mut self.play, &self.launch)
-                    }
-                    Tab::Instances => ui::instances::show(ui),
+                    Tab::Play => ui::play::show(
+                        ui,
+                        &self.theme,
+                        &self.auth,
+                        &mut self.play,
+                        &self.launch,
+                        &self.skin,
+                    ),
+                    Tab::Instances => ui::instances::show(ui, &self.theme),
                     Tab::Settings => ui::settings::show(ui, &mut self.settings, &mut self.theme),
                 }
             });
