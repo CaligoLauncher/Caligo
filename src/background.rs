@@ -1,8 +1,9 @@
-//! Фоновое изображение и «фальш-стекло».
+//! Фоновое изображение, «фальш-стекло» и виньетка.
 //!
 //! Из одной картинки готовятся две текстуры: обычная и заранее размытая.
 //! Панели рисуются поверх среза размытой версии (с нужным скруглением) —
 //! на статичном фоне это неотличимо от настоящего live-blur.
+//! Виньетка по краям добавляет глубины и убирает «плоскость».
 //! Настоящий blur-шейдер (wgpu) — апгрейд на этапе финальной полировки.
 
 use std::path::PathBuf;
@@ -50,8 +51,8 @@ impl Background {
         }
     }
 
-    /// Рисует фон на весь экран и размытые срезы (с закруглениями)
-    /// под «стеклянными» зонами.
+    /// Рисует фон на весь экран, размытые срезы (с закруглениями)
+    /// под «стеклянными» зонами и виньетку по краям.
     pub fn paint(
         &self,
         ctx: &egui::Context,
@@ -60,29 +61,37 @@ impl Background {
     ) {
         let painter = ctx.layer_painter(egui::LayerId::background());
         let screen = ctx.screen_rect();
-        let (Some(normal), Some(blurred)) = (&self.normal, &self.blurred) else {
-            // Фолбэк без картинки: мягкий вертикальный градиент из цвета темы.
-            let top = theme.background_color();
-            let bottom = darken(top, 0.45);
-            gradient(&painter, screen, top, bottom);
-            return;
-        };
-        let uv = cover_uv(normal.size_vec2(), screen);
-        painter.image(normal.id(), screen, uv, egui::Color32::WHITE);
-        for (rect, rounding) in glass_rects {
-            let rect = rect.intersect(screen);
-            if rect.is_positive() {
-                let mut shape = egui::epaint::RectShape::new(
-                    rect,
-                    *rounding,
-                    egui::Color32::WHITE,
-                    egui::Stroke::NONE,
-                );
-                shape.fill_texture_id = blurred.id();
-                shape.uv = sub_uv(uv, screen, rect);
-                painter.add(shape);
+        if let (Some(normal), Some(blurred)) = (&self.normal, &self.blurred) {
+            let uv = cover_uv(normal.size_vec2(), screen);
+            painter.image(normal.id(), screen, uv, egui::Color32::WHITE);
+            for (rect, rounding) in glass_rects {
+                let rect = rect.intersect(screen);
+                if rect.is_positive() {
+                    let mut shape = egui::epaint::RectShape::new(
+                        rect,
+                        *rounding,
+                        egui::Color32::WHITE,
+                        egui::Stroke::NONE,
+                    );
+                    shape.fill_texture_id = blurred.id();
+                    shape.uv = sub_uv(uv, screen, rect);
+                    painter.add(shape);
+                }
             }
+        } else {
+            // Фолбэк без картинки: мягкий вертикальный градиент из цвета
+            // темы с едва заметным акцентным подтоном внизу.
+            let top = theme.background_color();
+            let deep = darken(top, 0.45);
+            let accent = theme.accent_color();
+            let bottom = egui::Color32::from_rgb(
+                deep.r().saturating_add(accent.r() / 18),
+                deep.g().saturating_add(accent.g() / 18),
+                deep.b().saturating_add(accent.b() / 18),
+            );
+            vgradient(&painter, screen, top, bottom);
         }
+        vignette(&painter, screen);
     }
 }
 
@@ -123,12 +132,68 @@ fn sub_uv(full_uv: egui::Rect, screen: egui::Rect, part: egui::Rect) -> egui::Re
     )
 }
 
-fn gradient(painter: &egui::Painter, rect: egui::Rect, top: egui::Color32, bottom: egui::Color32) {
+/// Виньетка: мягкое затемнение краёв.低-контрастная, но убирает
+/// ощущение «плоской системной» картинки и ведёт взгляд к центру.
+fn vignette(painter: &egui::Painter, rect: egui::Rect) {
+    let clear = egui::Color32::TRANSPARENT;
+    let h = rect.height();
+    let w = rect.width();
+    // Низ — самый выраженный: добавляет визуального «веса».
+    vgradient(
+        painter,
+        egui::Rect::from_min_max(egui::pos2(rect.min.x, rect.max.y - h * 0.38), rect.max),
+        clear,
+        egui::Color32::from_black_alpha(85),
+    );
+    // Верх — мягче.
+    vgradient(
+        painter,
+        egui::Rect::from_min_max(rect.min, egui::pos2(rect.max.x, rect.min.y + h * 0.22)),
+        egui::Color32::from_black_alpha(55),
+        clear,
+    );
+    // Бока — едва заметные.
+    hgradient(
+        painter,
+        egui::Rect::from_min_max(rect.min, egui::pos2(rect.min.x + w * 0.12, rect.max.y)),
+        egui::Color32::from_black_alpha(38),
+        clear,
+    );
+    hgradient(
+        painter,
+        egui::Rect::from_min_max(egui::pos2(rect.max.x - w * 0.12, rect.min.y), rect.max),
+        clear,
+        egui::Color32::from_black_alpha(38),
+    );
+}
+
+fn vgradient(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    top: egui::Color32,
+    bottom: egui::Color32,
+) {
     let mut mesh = egui::Mesh::default();
     mesh.colored_vertex(rect.left_top(), top);
     mesh.colored_vertex(rect.right_top(), top);
     mesh.colored_vertex(rect.right_bottom(), bottom);
     mesh.colored_vertex(rect.left_bottom(), bottom);
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(0, 2, 3);
+    painter.add(egui::Shape::mesh(mesh));
+}
+
+fn hgradient(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    left: egui::Color32,
+    right: egui::Color32,
+) {
+    let mut mesh = egui::Mesh::default();
+    mesh.colored_vertex(rect.left_top(), left);
+    mesh.colored_vertex(rect.right_top(), right);
+    mesh.colored_vertex(rect.right_bottom(), right);
+    mesh.colored_vertex(rect.left_bottom(), left);
     mesh.add_triangle(0, 1, 2);
     mesh.add_triangle(0, 2, 3);
     painter.add(egui::Shape::mesh(mesh));
