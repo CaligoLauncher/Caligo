@@ -14,6 +14,12 @@ pub struct PlayState {
     pub offline_name: String,
 }
 
+/// Плавное смешение двух цветов.
+fn mix(a: egui::Color32, b: egui::Color32, t: f32) -> egui::Color32 {
+    let l = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t.clamp(0.0, 1.0)) as u8;
+    egui::Color32::from_rgb(l(a.r(), b.r()), l(a.g(), b.g()), l(a.b(), b.b()))
+}
+
 pub fn show(
     ui: &mut egui::Ui,
     theme: &ThemePreset,
@@ -152,16 +158,8 @@ fn launch_card(
                 }
                 state => {
                     let version = selected_version(play, launch);
-                    let button = egui::Button::new(
-                        egui::RichText::new("  ИГРАТЬ  ")
-                            .size(26.0)
-                            .strong()
-                            .color(egui::Color32::WHITE),
-                    )
-                    .fill(accent)
-                    .rounding(egui::Rounding::same(theme.rounding * 1.2))
-                    .min_size(egui::vec2(220.0, 60.0));
-                    if ui.add_enabled(version.is_some(), button).clicked() {
+                    let resp = play_button(ui, theme, version.is_some());
+                    if resp.clicked() {
                         if let Some(v) = version {
                             launch.launch(ui.ctx().clone(), v, profile_for(auth, play));
                         }
@@ -183,6 +181,65 @@ fn launch_card(
             }
         });
     });
+}
+
+/// Кнопка ИГРАТЬ, нарисованная вручную: мягко «дышит» свечением,
+/// при наведении разгорается и светлеет — а не системный прямоугольник.
+fn play_button(ui: &mut egui::Ui, theme: &ThemePreset, enabled: bool) -> egui::Response {
+    let accent = theme.accent_color();
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(220.0, 60.0), egui::Sense::click());
+    let hover = ui
+        .ctx()
+        .animate_bool(response.id.with("hover"), enabled && response.hovered());
+    let t = ui.input(|i| i.time) as f32;
+    // Медленное «дыхание» свечения (0.5..1.0). Постоянная перерисовка
+    // уже идёт из-за фоновых частиц, отдельный repaint не нужен.
+    let pulse = ((t * 1.6).sin() * 0.5 + 0.5) * 0.5 + 0.5;
+    let rounding = egui::Rounding::same(theme.rounding * 1.2);
+
+    let painter = ui.painter();
+    if enabled {
+        // Два слоя ореола: широкий слабый + узкий поярче.
+        painter.rect_filled(
+            rect.expand(9.0 + 3.0 * hover),
+            egui::Rounding::same(theme.rounding * 1.2 + 9.0),
+            accent.gamma_multiply(0.06 * pulse + 0.10 * hover),
+        );
+        painter.rect_filled(
+            rect.expand(3.0 + 2.0 * hover),
+            egui::Rounding::same(theme.rounding * 1.2 + 3.0),
+            accent.gamma_multiply(0.12 * pulse + 0.12 * hover),
+        );
+    }
+    let fill = if enabled {
+        mix(accent, egui::Color32::WHITE, hover * 0.15)
+    } else {
+        egui::Color32::from_rgb(58, 61, 68)
+    };
+    painter.rect_filled(rect, rounding, fill);
+    // Лёгкий «блик» в верхней половине — кнопка перестаёт быть плоской.
+    let sheen = egui::Rect::from_min_max(
+        rect.min,
+        egui::pos2(rect.max.x, rect.min.y + rect.height() * 0.45),
+    );
+    painter.rect_filled(sheen, rounding, egui::Color32::from_white_alpha(10));
+    let text_color = if enabled {
+        egui::Color32::WHITE
+    } else {
+        egui::Color32::from_gray(140)
+    };
+    painter.text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        "ИГРАТЬ",
+        egui::FontId::proportional(26.0),
+        text_color,
+    );
+    if enabled {
+        response.clone().on_hover_cursor(egui::CursorIcon::PointingHand);
+    }
+    response
 }
 
 fn profile_for(auth: &AuthManager, play: &PlayState) -> LaunchProfile {
