@@ -1,6 +1,7 @@
 mod app;
 mod auth;
 mod background;
+mod effects;
 mod launch;
 mod theme;
 mod ui;
