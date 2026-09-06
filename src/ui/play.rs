@@ -4,6 +4,7 @@ use crate::auth::{AuthManager, AuthState};
 use crate::launch::manifest::ManifestVersion;
 use crate::launch::run::LaunchProfile;
 use crate::launch::{LaunchManager, LaunchState};
+use crate::skin::{self, SkinManager};
 use crate::theme::ThemePreset;
 
 const OFFLINE_UUID: &str = "00000000-0000-0000-0000-000000000000";
@@ -26,25 +27,105 @@ pub fn show(
     auth: &AuthManager,
     play: &mut PlayState,
     launch: &LaunchManager,
+    skin_mgr: &SkinManager,
 ) {
     launch.ensure_versions(ui.ctx().clone());
     let accent = theme.accent_color();
 
-    // Контент прижат к низу, как в референсе: большая карточка запуска снизу,
-    // статус аккаунта сверху.
     ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
         ui.add_space(8.0);
         account_line(ui, auth, play, accent);
     });
 
+    // Нижняя карточка запуска.
     let card_h = 120.0;
     let bottom = ui.available_rect_before_wrap();
     let card_rect = egui::Rect::from_min_size(
         egui::pos2(bottom.min.x, bottom.max.y - card_h),
         egui::vec2(bottom.width(), card_h),
     );
+
+    // Центр вкладки — 3D-кукла скина игрока (LabyMod-style).
+    let doll_rect = egui::Rect::from_min_max(
+        egui::pos2(bottom.min.x, bottom.min.y + 8.0),
+        egui::pos2(bottom.max.x, card_rect.min.y - 12.0),
+    );
+    paperdoll_area(ui, doll_rect, auth, play, skin_mgr, accent);
+
     let mut card_ui = ui.new_child(egui::UiBuilder::new().max_rect(card_rect));
     launch_card(&mut card_ui, theme, auth, play, launch);
+}
+
+/// Кто мы сейчас: ник + ключ для скина (UUID онлайн-аккаунта или оффлайн-ник).
+fn identity(auth: &AuthManager, play: &PlayState) -> (Option<String>, Option<String>) {
+    match auth.state() {
+        AuthState::SignedIn(account) => {
+            (Some(account.username.clone()), Some(account.uuid.clone()))
+        }
+        _ => {
+            let name = play.offline_name.trim().to_string();
+            if name.is_empty() {
+                (None, None)
+            } else {
+                (Some(name.clone()), Some(name))
+            }
+        }
+    }
+}
+
+/// Центральная зона: покачивающаяся 3D-кукла скина, ник над головой.
+/// Без ника — приглашение, с ником без скина — серый силуэт.
+fn paperdoll_area(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    auth: &AuthManager,
+    play: &PlayState,
+    skin_mgr: &SkinManager,
+    accent: egui::Color32,
+) {
+    if rect.height() < 120.0 {
+        return; // слишком низкое окно — куклу не рисуем
+    }
+    let (name, key) = identity(auth, play);
+    skin_mgr.ensure(ui.ctx(), key);
+
+    if name.is_none() {
+        ui.painter().text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            "Войди в аккаунт или введи ник —\nи твой скин появится здесь",
+            egui::FontId::proportional(15.0),
+            ui.visuals().weak_text_color(),
+        );
+        return;
+    }
+    let t = ui.input(|i| i.time) as f32;
+    let tex = skin_mgr.texture();
+    skin::paint_paperdoll(
+        ui.painter(),
+        rect,
+        tex.as_ref(),
+        name.as_deref(),
+        accent,
+        t,
+    );
+    if skin_mgr.loading() {
+        ui.painter().text(
+            egui::pos2(rect.center().x, rect.max.y - 10.0),
+            egui::Align2::CENTER_BOTTOM,
+            "Загружаю скин…",
+            egui::FontId::proportional(12.0),
+            ui.visuals().weak_text_color(),
+        );
+    } else if let Some(err) = skin_mgr.error() {
+        ui.painter().text(
+            egui::pos2(rect.center().x, rect.max.y - 10.0),
+            egui::Align2::CENTER_BOTTOM,
+            format!("Скин: {err}"),
+            egui::FontId::proportional(12.0),
+            ui.visuals().weak_text_color(),
+        );
+    }
 }
 
 /// Верхняя строка: кто вошёл / вход / оффлайн-ник.
