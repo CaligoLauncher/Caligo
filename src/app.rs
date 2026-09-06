@@ -4,6 +4,7 @@ use eframe::egui;
 
 use crate::auth::AuthManager;
 use crate::background::Background;
+use crate::effects::Mist;
 use crate::launch::LaunchManager;
 use crate::theme::ThemePreset;
 use crate::ui;
@@ -37,6 +38,12 @@ fn sidebar_card_rect(screen: egui::Rect) -> egui::Rect {
     )
 }
 
+/// Плавное смешение двух цветов.
+fn mix(a: egui::Color32, b: egui::Color32, t: f32) -> egui::Color32 {
+    let l = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t.clamp(0.0, 1.0)) as u8;
+    egui::Color32::from_rgb(l(a.r(), b.r()), l(a.g(), b.g()), l(a.b(), b.b()))
+}
+
 pub struct CaligoApp {
     pub tab: Tab,
     pub theme: ThemePreset,
@@ -45,6 +52,7 @@ pub struct CaligoApp {
     pub launch: LaunchManager,
     pub play: ui::play::PlayState,
     background: Background,
+    mist: Mist,
     started_at: Instant,
     tab_switched_at: Instant,
 }
@@ -62,6 +70,7 @@ impl CaligoApp {
             launch: Default::default(),
             play: Default::default(),
             background,
+            mist: Mist::new(),
             started_at: Instant::now(),
             tab_switched_at: Instant::now(),
         }
@@ -74,8 +83,9 @@ impl CaligoApp {
         }
     }
 
-    /// Кастомный титлбар: полностью прозрачный, без подложки и краёв —
-    /// только название и кнопки поверх фона.
+    /// Кастомный титлбар: полностью прозрачный, без подложки и краёв.
+    /// Кнопки окна — «точки», раскрывающие цвет при наведении, а не
+    /// системные глифы.
     fn show_titlebar(&mut self, ctx: &egui::Context) {
         let accent = self.theme.accent_color();
         egui::TopBottomPanel::top("titlebar")
@@ -97,30 +107,25 @@ impl CaligoApp {
                 }
                 ui.horizontal_centered(|ui| {
                     ui.add_space(14.0);
+                    // Светящаяся точка-«глаз» — маленький фирменный знак.
+                    let (dot, _) =
+                        ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
+                    ui.painter()
+                        .circle_filled(dot.center(), 7.0, accent.gamma_multiply(0.25));
+                    ui.painter().circle_filled(dot.center(), 3.5, accent);
+                    ui.add_space(6.0);
                     ui.label(egui::RichText::new("Caligo").strong().color(accent));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.add_space(6.0);
-                        if ui
-                            .add(egui::Button::new("🗙").frame(false))
-                            .on_hover_text("Закрыть")
-                            .clicked()
-                        {
+                        ui.add_space(10.0);
+                        if window_button(ui, true, "Закрыть").clicked() {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                         }
-                        if ui
-                            .add(egui::Button::new("🗖").frame(false))
-                            .on_hover_text("Развернуть")
-                            .clicked()
-                        {
+                        if window_button(ui, false, "Развернуть").clicked() {
                             let maximized =
                                 ctx.input(|i| i.viewport().maximized.unwrap_or(false));
                             ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
                         }
-                        if ui
-                            .add(egui::Button::new("🗕").frame(false))
-                            .on_hover_text("Свернуть")
-                            .clicked()
-                        {
+                        if window_button(ui, false, "Свернуть").clicked() {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
                         }
                     });
@@ -170,7 +175,7 @@ impl CaligoApp {
 impl eframe::App for CaligoApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let screen = ctx.screen_rect();
-        // «Стекло» теперь только под карточкой сайдбара: титлбар полностью
+        // «Стекло» только под карточкой сайдбара: титлбар полностью
         // прозрачный, размытый срез фона рисуется со скруглением карточки.
         let card = sidebar_card_rect(screen);
         self.background.paint(
@@ -178,6 +183,8 @@ impl eframe::App for CaligoApp {
             &self.theme,
             &[(card, egui::Rounding::same(SIDEBAR_ROUNDING))],
         );
+        // Атмосферная «мгла»: светлячки поверх фона, под панелями.
+        self.mist.paint(ctx, self.theme.accent_color());
 
         self.show_titlebar(ctx);
         self.show_sidebar(ctx);
@@ -187,10 +194,18 @@ impl eframe::App for CaligoApp {
         if t < 1.0 {
             ctx.request_repaint();
         }
+        // Контент — тоже «плавающая» скруглённая карточка, в пару к сайдбару.
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::none()
                     .fill(self.theme.content_tint())
+                    .rounding(egui::Rounding::same(SIDEBAR_ROUNDING))
+                    .outer_margin(egui::Margin {
+                        left: 0.0,
+                        right: SIDEBAR_MARGIN,
+                        top: SIDEBAR_MARGIN,
+                        bottom: SIDEBAR_MARGIN,
+                    })
                     .inner_margin(egui::Margin::same(24.0)),
             )
             .show(ctx, |ui| {
@@ -219,8 +234,25 @@ impl eframe::App for CaligoApp {
     }
 }
 
-/// Иконка-кнопка сайдбара: подсветка выбранной вкладки акцентным цветом
-/// и полоска-индикатор слева, как в современных лаунчерах.
+/// Кнопка окна в титлбаре: спокойная точка, которая при наведении плавно
+/// разгорается (красным — для закрытия) и чуть увеличивается.
+fn window_button(ui: &mut egui::Ui, danger: bool, tooltip: &str) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::click());
+    let hover = ui.ctx().animate_bool(response.id.with("hover"), response.hovered());
+    let base = ui.visuals().weak_text_color().gamma_multiply(0.7);
+    let target = if danger {
+        egui::Color32::from_rgb(235, 87, 87)
+    } else {
+        ui.visuals().text_color()
+    };
+    let color = mix(base, target, hover);
+    ui.painter()
+        .circle_filled(rect.center(), 5.0 + hover * 1.5, color);
+    response.on_hover_text(tooltip)
+}
+
+/// Иконка-кнопка сайдбара: мягкое свечение выбранной вкладки,
+/// плавная подсветка при наведении.
 fn nav_button(
     ui: &mut egui::Ui,
     selected: bool,
@@ -229,8 +261,14 @@ fn nav_button(
     accent: egui::Color32,
 ) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(egui::vec2(46.0, 46.0), egui::Sense::click());
+    let hover = ui
+        .ctx()
+        .animate_bool(response.id.with("hover"), response.hovered() && !selected);
     let rounding = egui::Rounding::same(12.0);
     if selected {
+        // Свечение вокруг активной иконки вместо жёсткой рамки.
+        ui.painter()
+            .circle_filled(rect.center(), 27.0, accent.gamma_multiply(0.10));
         ui.painter()
             .rect_filled(rect, rounding, accent.gamma_multiply(0.22));
         let bar = egui::Rect::from_min_size(
@@ -238,11 +276,11 @@ fn nav_button(
             egui::vec2(3.0, 22.0),
         );
         ui.painter().rect_filled(bar, egui::Rounding::same(2.0), accent);
-    } else if response.hovered() {
+    } else if hover > 0.0 {
         ui.painter().rect_filled(
             rect,
             rounding,
-            ui.visuals().widgets.hovered.bg_fill.gamma_multiply(0.6),
+            egui::Color32::from_white_alpha((12.0 * hover) as u8),
         );
     }
     let color = if selected {
@@ -254,7 +292,7 @@ fn nav_button(
         rect.center(),
         egui::Align2::CENTER_CENTER,
         icon,
-        egui::FontId::proportional(20.0),
+        egui::FontId::proportional(20.0 + hover * 1.5),
         color,
     );
     response.on_hover_text(label)
