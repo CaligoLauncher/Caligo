@@ -132,7 +132,7 @@ fn sub_uv(full_uv: egui::Rect, screen: egui::Rect, part: egui::Rect) -> egui::Re
     )
 }
 
-/// Виньетка: мягкое затемнение краёв.低-контрастная, но убирает
+/// Виньетка: мягкое затемнение краёв.Низко-контрастная, но убирает
 /// ощущение «плоской системной» картинки и ведёт взгляд к центру.
 fn vignette(painter: &egui::Painter, rect: egui::Rect) {
     let clear = egui::Color32::TRANSPARENT;
