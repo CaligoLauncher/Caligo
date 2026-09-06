@@ -3,6 +3,7 @@ mod auth;
 mod background;
 mod effects;
 mod launch;
+mod skin;
 mod theme;
 mod ui;
 
