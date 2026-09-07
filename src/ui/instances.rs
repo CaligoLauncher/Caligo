@@ -69,7 +69,7 @@ fn create_card(ui: &mut egui::Ui, size: egui::Vec2, theme: &ThemePreset) {
         rect.center() + egui::vec2(0.0, 26.0),
         egui::Align2::CENTER_CENTER,
         "Создать сборку",
-        egui::FontId::proportional(14.5),
+        egui::FontId::proportional(13.0),
         theme.text_primary(),
     );
     response
@@ -95,9 +95,11 @@ fn ghost_card(ui: &mut egui::Ui, size: egui::Vec2, theme: &ThemePreset, i: usize
         rect.min + egui::vec2(16.0, 16.0),
         egui::vec2(44.0, 44.0),
     );
+    // Концентрическое скругление (Tahoe): радиус вложенного квадрата
+    // выводится из радиуса карточки минус отступ.
     p.rect_filled(
         icon,
-        egui::Rounding::same(10.0),
+        egui::Rounding::same(ThemePreset::concentric(16.0, 12.0)),
         egui::Color32::from_white_alpha((8.0 * fade) as u8),
     );
     let title = egui::Rect::from_min_size(
