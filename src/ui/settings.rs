@@ -20,20 +20,22 @@ fn section(
     egui::Frame::none()
         .fill(theme.card_fill())
         .stroke(theme.card_stroke())
-        .rounding(egui::Rounding::same(14.0))
+        .rounding(egui::Rounding::same(16.0))
         .inner_margin(egui::Margin::same(16.0))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
+            // Типографика Tahoe: заголовок секции — Title 3 (15 pt,
+            // полужирный), описание — Subheadline (11 pt).
             ui.label(
                 egui::RichText::new(title)
-                    .size(16.0)
+                    .size(15.0)
                     .strong()
                     .color(theme.text_primary()),
             );
             if !desc.is_empty() {
                 ui.label(
                     egui::RichText::new(desc)
-                        .size(12.5)
+                        .size(11.0)
                         .color(theme.text_tertiary()),
                 );
             }
