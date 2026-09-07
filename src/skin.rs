@@ -373,3 +373,31 @@ pub fn paint_paperdoll(
         );
     }
 }
+
+/// Плоская «голова» из текстуры скина: лицо + слой шапки поверх.
+/// Для чипа профиля и аватарок; без текстуры — нейтральный квадрат.
+pub fn paint_head(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    tex: Option<&egui::TextureHandle>,
+    rounding: f32,
+) {
+    match tex {
+        Some(tex) => {
+            let mut mesh = egui::Mesh::with_texture(tex.id());
+            let q = |x: f32, y: f32| egui::pos2(x / 64.0, y / 64.0);
+            let face = egui::Rect::from_min_max(q(8.0, 8.0), q(16.0, 16.0));
+            mesh.add_rect_with_uv(rect, face, egui::Color32::WHITE);
+            let hat = egui::Rect::from_min_max(q(40.0, 8.0), q(48.0, 16.0));
+            mesh.add_rect_with_uv(rect.expand(rect.width() * 0.06), hat, egui::Color32::WHITE);
+            painter.add(egui::Shape::mesh(mesh));
+        }
+        None => {
+            painter.rect_filled(
+                rect,
+                egui::Rounding::same(rounding),
+                egui::Color32::from_rgb(82, 96, 122),
+            );
+        }
+    }
+}
