@@ -1,9 +1,12 @@
-//! Фоновое изображение, «фальш-стекло» и виньетка.
+//! Фоновое изображение, «жидкое стекло» и виньетка.
 //!
 //! Из одной картинки готовятся две текстуры: обычная и заранее размытая.
 //! Панели рисуются поверх среза размытой версии (с нужным скруглением) —
 //! на статичном фоне это неотличимо от настоящего live-blur.
-//! Виньетка по краям добавляет глубины и убирает «плоскость».
+//! По доктрине Liquid Glass (macOS Tahoe) regular-стекло не только
+//! размывает фон, но и подстраивает его ЯРКОСТЬ, чтобы контент поверх
+//! оставался читаемым — поэтому поверх каждого среза кладётся
+//! люминантный слой под тему. Виньетка по краям добавляет глубины.
 //! Настоящий blur-шейдер (wgpu) — апгрейд на этапе финальной полировки.
 
 use std::path::PathBuf;
@@ -39,7 +42,9 @@ impl Background {
         let rgba = img.to_rgba8();
         let size = [rgba.width() as usize, rgba.height() as usize];
         let normal = egui::ColorImage::from_rgba_unmultiplied(size, rgba.as_raw());
-        let blurred_rgba = image::imageops::fast_blur(&rgba, 12.0);
+        // Стекло Tahoe размывает сильно: детали фона за панелью должны
+        // читаться как цветовые пятна, а не как контуры.
+        let blurred_rgba = image::imageops::fast_blur(&rgba, 22.0);
         let blurred = egui::ColorImage::from_rgba_unmultiplied(size, blurred_rgba.as_raw());
         Self {
             normal: Some(ctx.load_texture("background", normal, egui::TextureOptions::LINEAR)),
@@ -76,6 +81,14 @@ impl Background {
                     shape.fill_texture_id = blurred.id();
                     shape.uv = sub_uv(uv, screen, rect);
                     painter.add(shape);
+                    // Люминантная подстройка regular-стекла: тёмная тема
+                    // приглушает яркий фон, светлая — наоборот высветляет.
+                    let lum = if theme.dark {
+                        egui::Color32::from_black_alpha(56)
+                    } else {
+                        egui::Color32::from_white_alpha(56)
+                    };
+                    painter.rect_filled(rect, *rounding, lum);
                 }
             }
         } else {
