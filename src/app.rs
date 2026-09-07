@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use eframe::egui;
 
-use crate::auth::AuthManager;
+use crate::auth::{AuthManager, AuthState};
 use crate::background::Background;
 use crate::effects::Mist;
 use crate::launch::LaunchManager;
@@ -17,9 +17,12 @@ const SIDEBAR_CARD_W: f32 = 56.0;
 const SIDEBAR_MARGIN: f32 = 8.0;
 const SIDEBAR_ROUNDING: f32 = 18.0;
 
+/// Экраны лаунчера. `Home` — главное меню (основной экран, не вкладка):
+/// в сайдбаре его нет, назад ведут клик по имени Caligo в титлбаре
+/// или повторный клик по активной вкладке.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
-    Play,
+    Home,
     Instances,
     Settings,
 }
@@ -82,7 +85,7 @@ impl CaligoApp {
         theme.apply(&cc.egui_ctx);
         let background = Background::load(&cc.egui_ctx);
         Self {
-            tab: Tab::Play,
+            tab: Tab::Home,
             theme,
             settings: Default::default(),
             auth: Default::default(),
@@ -104,10 +107,11 @@ impl CaligoApp {
     }
 
     /// Кастомный титлбар: полностью прозрачный, без подложки и краёв.
-    /// Кнопки окна — «точки», раскрывающие цвет при наведении, а не
-    /// системные глифы.
+    /// Слева — знак Caligo и профиль игрока, справа — кнопки окна
+    /// («точки», раскрывающие цвет при наведении, а не системные глифы).
     fn show_titlebar(&mut self, ctx: &egui::Context) {
         let accent = self.theme.accent_color();
+        let mut go_home = false;
         egui::TopBottomPanel::top("titlebar")
             .exact_height(TITLEBAR_H)
             .frame(egui::Frame::none())
@@ -134,7 +138,16 @@ impl CaligoApp {
                         .circle_filled(dot.center(), 7.0, accent.gamma_multiply(0.25));
                     ui.painter().circle_filled(dot.center(), 3.5, accent);
                     ui.add_space(6.0);
-                    ui.label(egui::RichText::new("Caligo").strong().color(accent));
+                    let brand = ui.add(
+                        egui::Label::new(egui::RichText::new("Caligo").strong().color(accent))
+                            .sense(egui::Sense::click()),
+                    );
+                    if brand.on_hover_text("На главную").clicked() {
+                        go_home = true;
+                    }
+                    ui.add_space(16.0);
+                    // Профиль игрока — слева на верхней полоске.
+                    profile_strip(ui, accent, &self.auth, &mut self.play);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.add_space(10.0);
                         if window_button(ui, true, "Закрыть").clicked() {
@@ -151,9 +164,14 @@ impl CaligoApp {
                     });
                 });
             });
+        if go_home {
+            self.switch_tab(Tab::Home);
+        }
     }
 
     /// Левое меню — «плавающая» скруглённая карточка с иконками.
+    /// Главного меню здесь нет: оно — основной экран, а не вкладка.
+    /// Повторный клик по активной вкладке возвращает на главную.
     fn show_sidebar(&mut self, ctx: &egui::Context) {
         let accent = self.theme.accent_color();
         let mut clicked: Option<Tab> = None;
@@ -176,7 +194,6 @@ impl CaligoApp {
                 );
                 card_ui.add_space(14.0);
                 for (tab, icon, label) in [
-                    (Tab::Play, "▶", "Играть"),
                     (Tab::Instances, "📦", "Сборки"),
                     (Tab::Settings, "⚙", "Настройки"),
                 ] {
@@ -187,7 +204,8 @@ impl CaligoApp {
                 }
             });
         if let Some(tab) = clicked {
-            self.switch_tab(tab);
+            let target = if self.tab == tab { Tab::Home } else { tab };
+            self.switch_tab(target);
         }
     }
 }
@@ -214,36 +232,45 @@ impl eframe::App for CaligoApp {
         if t < 1.0 {
             ctx.request_repaint();
         }
-        // Контент — тоже «плавающая» скруглённая карточка, в пару к сайдбару.
-        egui::CentralPanel::default()
-            .frame(
-                egui::Frame::none()
-                    .fill(self.theme.content_tint())
-                    .rounding(egui::Rounding::same(SIDEBAR_ROUNDING))
-                    .outer_margin(egui::Margin {
-                        left: 0.0,
-                        right: SIDEBAR_MARGIN,
-                        top: SIDEBAR_MARGIN,
-                        bottom: SIDEBAR_MARGIN,
-                    })
-                    .inner_margin(egui::Margin::same(24.0)),
-            )
-            .show(ctx, |ui| {
-                ui.set_opacity(t);
-                ui.add_space((1.0 - t) * 12.0);
-                match self.tab {
-                    Tab::Play => ui::play::show(
-                        ui,
-                        &self.theme,
-                        &self.auth,
-                        &mut self.play,
-                        &self.launch,
-                        &self.skin,
-                    ),
-                    Tab::Instances => ui::instances::show(ui, &self.theme),
-                    Tab::Settings => ui::settings::show(ui, &mut self.settings, &mut self.theme),
-                }
-            });
+        // Главное меню — основной экран: без карточки-подложки, прямо на
+        // фоне (мгла остаётся). Вкладки — «плавающая» скруглённая карточка.
+        let frame = if self.tab == Tab::Home {
+            egui::Frame::none()
+                .outer_margin(egui::Margin {
+                    left: 0.0,
+                    right: SIDEBAR_MARGIN,
+                    top: SIDEBAR_MARGIN,
+                    bottom: SIDEBAR_MARGIN,
+                })
+                .inner_margin(egui::Margin::same(24.0))
+        } else {
+            egui::Frame::none()
+                .fill(self.theme.content_tint())
+                .rounding(egui::Rounding::same(SIDEBAR_ROUNDING))
+                .outer_margin(egui::Margin {
+                    left: 0.0,
+                    right: SIDEBAR_MARGIN,
+                    top: SIDEBAR_MARGIN,
+                    bottom: SIDEBAR_MARGIN,
+                })
+                .inner_margin(egui::Margin::same(24.0))
+        };
+        egui::CentralPanel::default().frame(frame).show(ctx, |ui| {
+            ui.set_opacity(t);
+            ui.add_space((1.0 - t) * 12.0);
+            match self.tab {
+                Tab::Home => ui::play::show(
+                    ui,
+                    &self.theme,
+                    &self.auth,
+                    &mut self.play,
+                    &self.launch,
+                    &self.skin,
+                ),
+                Tab::Instances => ui::instances::show(ui, &self.theme),
+                Tab::Settings => ui::settings::show(ui, &mut self.settings, &mut self.theme),
+            }
+        });
 
         // Фейд-ин всего окна при запуске лаунчера.
         let fade = (self.started_at.elapsed().as_secs_f32() / 0.6).min(1.0);
@@ -255,6 +282,72 @@ impl eframe::App for CaligoApp {
                 egui::Id::new("startup_fade"),
             ))
             .rect_filled(screen, 0.0, egui::Color32::from_black_alpha(a));
+        }
+    }
+}
+
+/// Компактный профиль игрока в верхней полоске: вход через Microsoft,
+/// оффлайн-ник, код устройства и статус входа — всё в одну строку.
+fn profile_strip(
+    ui: &mut egui::Ui,
+    accent: egui::Color32,
+    auth: &AuthManager,
+    play: &mut crate::ui::play::PlayState,
+) {
+    match auth.state() {
+        AuthState::SignedOut => {
+            ui.add(
+                egui::TextEdit::singleline(&mut play.offline_name)
+                    .hint_text("Ник (оффлайн)")
+                    .desired_width(130.0),
+            );
+            ui.add_space(6.0);
+            if ui.button("Войти через Microsoft").clicked() {
+                auth.start_login(ui.ctx().clone());
+            }
+        }
+        AuthState::WaitingForUser {
+            verification_uri,
+            user_code,
+        } => {
+            ui.label(egui::RichText::new("Код входа:").size(12.0).weak());
+            ui.label(
+                egui::RichText::new(&user_code)
+                    .monospace()
+                    .strong()
+                    .size(15.0)
+                    .color(accent),
+            );
+            if ui.small_button("Копировать").clicked() {
+                ui.ctx().output_mut(|o| o.copied_text = user_code.clone());
+            }
+            ui.hyperlink_to("Ввести код", &verification_uri);
+            ui.spinner();
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(500));
+        }
+        AuthState::InProgress(step) => {
+            ui.spinner();
+            ui.label(egui::RichText::new(step).size(12.0));
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(500));
+        }
+        AuthState::SignedIn(account) => {
+            ui.label(egui::RichText::new("👤").size(13.0));
+            ui.colored_label(accent, egui::RichText::new(&account.username).strong());
+            if ui.small_button("Выйти").clicked() {
+                auth.sign_out();
+            }
+        }
+        AuthState::Failed(err) => {
+            ui.colored_label(
+                egui::Color32::from_rgb(255, 120, 120),
+                egui::RichText::new("Ошибка входа").size(12.0),
+            )
+            .on_hover_text(err);
+            if ui.small_button("Снова").clicked() {
+                auth.start_login(ui.ctx().clone());
+            }
         }
     }
 }
