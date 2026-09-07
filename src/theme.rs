@@ -137,6 +137,45 @@ impl ThemePreset {
         egui::Stroke::new(1.0_f32, self.surface(4))
     }
 
+    /// --- Материал Liquid Glass (macOS Tahoe) ---
+    ///
+    /// «Обычное» стекло (regular): для крупных элементов — панелей,
+    /// сайдбаров. По HIG крупные элементы делаются заметно более
+    /// непрозрачными, чтобы текст оставался читаемым на сложном фоне.
+    pub fn glass_regular(&self) -> egui::Color32 {
+        let a = (self.opacity.clamp(0.0, 1.0) * 228.0) as u8;
+        egui::Color32::from_rgba_unmultiplied(
+            self.background[0],
+            self.background[1],
+            self.background[2],
+            a,
+        )
+    }
+
+    /// «Прозрачное» стекло (clear): почти прозрачный материал для мелких
+    /// контролов над насыщенным фоном; читаемость обеспечивает
+    /// затемняющий слой `glass_dim`.
+    pub fn glass_clear(&self) -> egui::Color32 {
+        egui::Color32::from_rgba_unmultiplied(
+            self.background[0],
+            self.background[1],
+            self.background[2],
+            96,
+        )
+    }
+
+    /// Затемняющий слой под clear-стеклом — ровно 35% непрозрачности,
+    /// как предписывает HIG («dark dimming layer at 35% opacity»).
+    pub fn glass_dim(&self) -> egui::Color32 {
+        egui::Color32::from_black_alpha(89)
+    }
+
+    /// Концентрические скругления (Tahoe): радиус вложенного элемента =
+    /// радиус контейнера минус отступ — углы «дышат» согласованно.
+    pub fn concentric(outer: f32, inset: f32) -> f32 {
+        (outer - inset).max(4.0)
+    }
+
     /// Заливка «стеклянных» панелей поверх размытого фона.
     pub fn glass_fill(&self) -> egui::Color32 {
         let a = (self.opacity.clamp(0.0, 1.0) * 210.0) as u8;
@@ -211,30 +250,31 @@ impl ThemePreset {
     }
 
     /// Применяет тему целиком: не только цвета, но и типографику с ритмом
-    /// отступов. Шкала размеров и отступов — по дизайн-системе Modrinth
-    /// (16px базовый текст у них в вебе; в плотном нативном окне берём 15).
+    /// отступов. Шкала размеров — системная лестница macOS (Tahoe):
+    /// Large Title 26, Body/Headline 13, Subheadline 11 (иерархия
+    /// строится весом и цветом, а не крупными кеглями).
     pub fn apply(&self, ctx: &egui::Context) {
         let mut style = (*ctx.style()).clone();
         style.text_styles = [
             (
                 egui::TextStyle::Heading,
-                egui::FontId::new(24.0, egui::FontFamily::Proportional),
+                egui::FontId::new(26.0, egui::FontFamily::Proportional),
             ),
             (
                 egui::TextStyle::Body,
-                egui::FontId::new(15.0, egui::FontFamily::Proportional),
+                egui::FontId::new(13.0, egui::FontFamily::Proportional),
             ),
             (
                 egui::TextStyle::Button,
-                egui::FontId::new(15.0, egui::FontFamily::Proportional),
+                egui::FontId::new(13.0, egui::FontFamily::Proportional),
             ),
             (
                 egui::TextStyle::Small,
-                egui::FontId::new(12.0, egui::FontFamily::Proportional),
+                egui::FontId::new(11.0, egui::FontFamily::Proportional),
             ),
             (
                 egui::TextStyle::Monospace,
-                egui::FontId::new(13.5, egui::FontFamily::Monospace),
+                egui::FontId::new(12.0, egui::FontFamily::Monospace),
             ),
         ]
         .into();
@@ -271,6 +311,13 @@ mod tests {
     #[test]
     fn invalid_json_is_an_error() {
         assert!(ThemePreset::from_json("not json").is_err());
+    }
+
+    #[test]
+    fn concentric_radius_shrinks_with_inset() {
+        assert_eq!(ThemePreset::concentric(20.0, 8.0), 12.0);
+        // Никогда не схлопывается в прямые углы.
+        assert_eq!(ThemePreset::concentric(10.0, 12.0), 4.0);
     }
 
     #[test]
