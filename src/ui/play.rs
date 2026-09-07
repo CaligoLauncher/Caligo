@@ -177,7 +177,13 @@ fn friends_panel(ui: &mut egui::Ui, rect: egui::Rect, theme: &ThemePreset) {
         let (dot, _) = ui.allocate_exact_size(egui::vec2(8.0, 8.0), egui::Sense::hover());
         ui.painter()
             .circle_filled(dot.center(), 3.0, accent.gamma_multiply(0.9));
-        ui.label(egui::RichText::new("ГРУППА").small().weak());
+        // Разрежённые капс-буквы — типографика ярлыков секций
+        // (как у Modrinth/Lunar): тихий, но собранный заголовок.
+        ui.label(
+            egui::RichText::new("Г Р У П П А")
+                .size(11.0)
+                .color(theme.text_tertiary()),
+        );
     });
     ui.add_space(8.0);
     for i in 0..3 {
@@ -187,8 +193,8 @@ fn friends_panel(ui: &mut egui::Ui, rect: egui::Rect, theme: &ThemePreset) {
     ui.add_space(8.0);
     ui.label(
         egui::RichText::new("Друзья и совместные сборки появятся в будущих версиях")
-            .weak()
-            .size(12.0),
+            .size(12.0)
+            .color(theme.text_tertiary()),
     );
 }
 
