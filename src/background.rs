@@ -95,39 +95,51 @@ impl Background {
             // Фолбэк без картинки: мягкий вертикальный градиент из цвета
             // темы с едва заметным акцентным подтоном внизу.
             let base = theme.background_color();
-            let accent = theme.accent_color();
+            let style = &theme.modules.background;
             // Верх — глубокий сине-чёрный с холодным подъёмом, низ темнее:
             // без картинки фон должен быть спроектированным задником,
-            // а не чёрной пустотой, в которой тонут стеклянные панели.
-            let top = egui::Color32::from_rgb(
-                base.r().saturating_add(8),
-                base.g().saturating_add(11),
-                base.b().saturating_add(20),
-            );
-            let bottom = darken(base, 0.55);
+            // а не чёрной пустотой. Оба цвета можно переопределить
+            // в настройках фона.
+            let top = style.top.map(crate::theme::color_arr).unwrap_or_else(|| {
+                egui::Color32::from_rgb(
+                    base.r().saturating_add(8),
+                    base.g().saturating_add(11),
+                    base.b().saturating_add(20),
+                )
+            });
+            let bottom = style
+                .bottom
+                .map(crate::theme::color_arr)
+                .unwrap_or_else(|| darken(base, 0.55));
             vgradient(&painter, screen, top, bottom);
-            // Мягкие акцентные свечения: большое — за персонажем,
-            // тихое — в правом нижнем углу. Панелям есть на чём стоять.
-            glow(
-                &painter,
-                egui::pos2(
-                    screen.min.x + screen.width() * 0.40,
-                    screen.min.y + screen.height() * 0.32,
-                ),
-                screen.height() * 0.60,
-                accent,
-            );
-            glow(
-                &painter,
-                egui::pos2(
-                    screen.min.x + screen.width() * 0.88,
-                    screen.min.y + screen.height() * 1.05,
-                ),
-                screen.height() * 0.45,
-                accent,
-            );
+            // Акцентные свечения по умолчанию ВЫКЛЮЧЕНЫ: низкоальфовые
+            // круги на плавном градиенте дают заметные «кольца»/полосы.
+            // Включаются в настройках фона (с регулировкой силы).
+            if style.glow {
+                let accent = theme.accent_color();
+                glow(
+                    &painter,
+                    egui::pos2(
+                        screen.min.x + screen.width() * 0.40,
+                        screen.min.y + screen.height() * 0.32,
+                    ),
+                    screen.height() * 0.60,
+                    accent,
+                    style.glow_strength,
+                );
+                glow(
+                    &painter,
+                    egui::pos2(
+                        screen.min.x + screen.width() * 0.88,
+                        screen.min.y + screen.height() * 1.05,
+                    ),
+                    screen.height() * 0.45,
+                    accent,
+                    style.glow_strength,
+                );
+            }
         }
-        vignette(&painter, screen);
+        vignette(&painter, screen, theme.modules.background.vignette);
     }
 }
 
@@ -168,9 +180,15 @@ fn sub_uv(full_uv: egui::Rect, screen: egui::Rect, part: egui::Rect) -> egui::Re
     )
 }
 
-/// Виньетка: мягкое затемнение краёв.Низко-контрастная, но убирает
+/// Виньетка: мягкое затемнение краёв. Низко-контрастная, но убирает
 /// ощущение «плоской системной» картинки и ведёт взгляд к центру.
-fn vignette(painter: &egui::Painter, rect: egui::Rect) {
+/// Сила настраивается в настройках фона (0 — выключена).
+fn vignette(painter: &egui::Painter, rect: egui::Rect, strength: f32) {
+    if strength <= 0.0 {
+        return;
+    }
+    let s = strength.clamp(0.0, 1.5);
+    let a = |base: f32| egui::Color32::from_black_alpha((base * s) as u8);
     let clear = egui::Color32::TRANSPARENT;
     let h = rect.height();
     let w = rect.width();
@@ -179,27 +197,27 @@ fn vignette(painter: &egui::Painter, rect: egui::Rect) {
         painter,
         egui::Rect::from_min_max(egui::pos2(rect.min.x, rect.max.y - h * 0.38), rect.max),
         clear,
-        egui::Color32::from_black_alpha(85),
+        a(85.0),
     );
     // Верх — мягче.
     vgradient(
         painter,
         egui::Rect::from_min_max(rect.min, egui::pos2(rect.max.x, rect.min.y + h * 0.22)),
-        egui::Color32::from_black_alpha(55),
+        a(55.0),
         clear,
     );
     // Бока — едва заметные.
     hgradient(
         painter,
         egui::Rect::from_min_max(rect.min, egui::pos2(rect.min.x + w * 0.12, rect.max.y)),
-        egui::Color32::from_black_alpha(38),
+        a(38.0),
         clear,
     );
     hgradient(
         painter,
         egui::Rect::from_min_max(egui::pos2(rect.max.x - w * 0.12, rect.min.y), rect.max),
         clear,
-        egui::Color32::from_black_alpha(38),
+        a(38.0),
     );
 }
 
@@ -243,16 +261,29 @@ fn darken(c: egui::Color32, f: f32) -> egui::Color32 {
     )
 }
 
-/// Большое мягкое пятно света: концентрические круги с крошечной альфой
-/// складываются в плавное свечение без градиентного меша.
-fn glow(painter: &egui::Painter, center: egui::Pos2, radius: f32, color: egui::Color32) {
-    let steps = 18;
+/// Большое мягкое пятно света. Много шагов с квадратичным спадом
+/// радиуса и минимальной альфой на шаг — плавное свечение без
+/// видимых «колец» между соседними кругами.
+fn glow(
+    painter: &egui::Painter,
+    center: egui::Pos2,
+    radius: f32,
+    color: egui::Color32,
+    strength: f32,
+) {
+    if strength <= 0.0 {
+        return;
+    }
+    let a = (1.5 * strength).clamp(1.0, 4.0) as u8;
+    let steps = 48;
     for i in 0..steps {
-        let r = radius * (1.0 - i as f32 / steps as f32);
+        let k = 1.0 - i as f32 / steps as f32;
+        // Квадратичный спад: шаги плотнее к центру, переходы мягче.
+        let r = radius * k * k;
         painter.circle_filled(
             center,
             r,
-            egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 2),
+            egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), a),
         );
     }
 }
