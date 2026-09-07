@@ -54,7 +54,7 @@ fn glass_edge(painter: &egui::Painter, rect: egui::Rect, rounding: egui::Roundin
     painter.rect_stroke(
         rect,
         rounding,
-        egui::Stroke::new(1.0, egui::Color32::from_white_alpha(12)),
+        egui::Stroke::new(1.0_f32, egui::Color32::from_white_alpha(12)),
     );
 }
 
@@ -226,7 +226,7 @@ impl CaligoApp {
                 egui::Frame::none()
                     .fill(fill)
                     .rounding(egui::Rounding::same(14.0))
-                    .stroke(egui::Stroke::new(1.0, egui::Color32::from_white_alpha(16)))
+                    .stroke(egui::Stroke::new(1.0_f32, egui::Color32::from_white_alpha(16)))
                     .inner_margin(egui::Margin::same(16.0))
                     .show(ui, |ui| {
                         ui.set_width(PROFILE_W - 32.0);
