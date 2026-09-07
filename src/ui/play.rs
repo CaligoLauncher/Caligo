@@ -34,7 +34,7 @@ fn glass_edge(painter: &egui::Painter, rect: egui::Rect, rounding: egui::Roundin
     painter.rect_stroke(
         rect,
         rounding,
-        egui::Stroke::new(1.0, egui::Color32::from_white_alpha(12)),
+        egui::Stroke::new(1.0_f32, egui::Color32::from_white_alpha(12)),
     );
 }
 
