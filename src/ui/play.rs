@@ -29,9 +29,10 @@ fn mix(a: egui::Color32, b: egui::Color32, t: f32) -> egui::Color32 {
     egui::Color32::from_rgb(l(a.r(), b.r()), l(a.g(), b.g()), l(a.b(), b.b()))
 }
 
-/// Главное меню по макету: в центре — игрок (а в будущем и его группа),
-/// справа — панель группы/друзей на всю высоту, внизу две мини-кнопки:
-/// слева выбор сборки, справа ИГРАТЬ.
+/// Главное меню — основной экран лаунчера (не вкладка): в центре — игрок
+/// (а в будущем и его группа), справа — панель группы на всю высоту,
+/// внизу две мини-кнопки: слева выбор сборки, справа ИГРАТЬ.
+/// Профиль игрока живёт в верхней полоске (см. `app.rs`).
 pub fn show(
     ui: &mut egui::Ui,
     theme: &ThemePreset,
@@ -44,10 +45,10 @@ pub fn show(
     let accent = theme.accent_color();
     let full = ui.available_rect_before_wrap();
 
-    // Правая панель — на всю высоту вкладки.
+    // Правая панель — на всю высоту экрана.
     let panel_rect =
         egui::Rect::from_min_max(egui::pos2(full.max.x - PANEL_W, full.min.y), full.max);
-    friends_panel(ui, panel_rect, theme, auth, play);
+    friends_panel(ui, panel_rect, theme);
 
     // Центральная зона левее панели.
     let center =
@@ -93,7 +94,7 @@ fn identity(auth: &AuthManager, play: &PlayState) -> (Option<String>, Option<Str
     }
 }
 
-/// Центральная зона: покачивающаяся 3D-кукла скина игрока, ник над головой.
+/// Центральная зона: статичная 3D-кукла скина игрока, ник над головой.
 /// Когда появится система групп, здесь встанут рядом куклы всей группы.
 fn paperdoll_area(
     ui: &mut egui::Ui,
@@ -113,7 +114,7 @@ fn paperdoll_area(
         ui.painter().text(
             rect.center(),
             egui::Align2::CENTER_CENTER,
-            "Войди в аккаунт или введи ник справа —\nи твой персонаж появится здесь",
+            "Войди или введи ник на верхней полоске —\nи твой персонаж появится здесь",
             egui::FontId::proportional(15.0),
             ui.visuals().weak_text_color(),
         );
@@ -148,16 +149,9 @@ fn paperdoll_area(
     }
 }
 
-/// Правая панель на всю высоту: аккаунт игрока сверху, ниже — группа/друзья
+/// Правая панель на всю высоту: группа/друзья
 /// (пока заглушки: система друзей появится в будущих версиях).
-fn friends_panel(
-    ui: &mut egui::Ui,
-    rect: egui::Rect,
-    theme: &ThemePreset,
-    auth: &AuthManager,
-    play: &mut PlayState,
-) {
-    let accent = theme.accent_color();
+fn friends_panel(ui: &mut egui::Ui, rect: egui::Rect, theme: &ThemePreset) {
     let rounding = egui::Rounding::same(theme.rounding * 1.4);
     ui.painter().rect_filled(rect, rounding, theme.glass_fill());
 
@@ -167,14 +161,6 @@ fn friends_panel(
             .max_rect(inner)
             .layout(egui::Layout::top_down(egui::Align::Min)),
     );
-
-    ui.label(egui::RichText::new("ТЫ").small().weak());
-    ui.add_space(6.0);
-    account_block(&mut ui, auth, play, accent);
-
-    ui.add_space(14.0);
-    thin_line(&mut ui);
-    ui.add_space(14.0);
 
     ui.label(egui::RichText::new("ГРУППА").small().weak());
     ui.add_space(8.0);
@@ -188,14 +174,6 @@ fn friends_panel(
             .weak()
             .size(12.0),
     );
-}
-
-/// Тонкая разделительная линия панели.
-fn thin_line(ui: &mut egui::Ui) {
-    let w = ui.available_width();
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(w, 1.0), egui::Sense::hover());
-    ui.painter()
-        .rect_filled(rect, 0.0, egui::Color32::from_white_alpha(14));
 }
 
 /// «Призрачный» слот друга: место, где встанет карточка живого человека.
@@ -217,82 +195,6 @@ fn ghost_friend_row(ui: &mut egui::Ui, i: usize) {
     );
     ui.painter()
         .rect_filled(bar, egui::Rounding::same(4.0), egui::Color32::from_white_alpha(8));
-}
-
-/// Блок аккаунта в правой панели: вход / оффлайн-ник / статус входа.
-fn account_block(
-    ui: &mut egui::Ui,
-    auth: &AuthManager,
-    play: &mut PlayState,
-    accent: egui::Color32,
-) {
-    match auth.state() {
-        AuthState::SignedOut => {
-            ui.add(
-                egui::TextEdit::singleline(&mut play.offline_name)
-                    .hint_text("Ник (оффлайн)")
-                    .desired_width(ui.available_width()),
-            );
-            ui.add_space(6.0);
-            if ui
-                .add_sized(
-                    egui::vec2(ui.available_width(), 30.0),
-                    egui::Button::new("Войти через Microsoft"),
-                )
-                .clicked()
-            {
-                auth.start_login(ui.ctx().clone());
-            }
-        }
-        AuthState::WaitingForUser {
-            verification_uri,
-            user_code,
-        } => {
-            ui.label(egui::RichText::new("Открой ссылку и введи код:").size(13.0));
-            ui.hyperlink(&verification_uri);
-            ui.add_space(4.0);
-            ui.label(
-                egui::RichText::new(&user_code)
-                    .size(24.0)
-                    .monospace()
-                    .strong()
-                    .color(accent),
-            );
-            if ui.button("Скопировать код").clicked() {
-                ui.ctx().output_mut(|o| o.copied_text = user_code.clone());
-            }
-            ui.spinner();
-            ui.ctx()
-                .request_repaint_after(std::time::Duration::from_millis(500));
-        }
-        AuthState::InProgress(step) => {
-            ui.horizontal(|ui| {
-                ui.spinner();
-                ui.label(egui::RichText::new(step).size(13.0));
-            });
-            ui.ctx()
-                .request_repaint_after(std::time::Duration::from_millis(500));
-        }
-        AuthState::SignedIn(account) => {
-            ui.horizontal(|ui| {
-                ui.colored_label(accent, egui::RichText::new(&account.username).strong());
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.small_button("Выйти").clicked() {
-                        auth.sign_out();
-                    }
-                });
-            });
-        }
-        AuthState::Failed(err) => {
-            ui.colored_label(
-                egui::Color32::from_rgb(255, 120, 120),
-                egui::RichText::new(format!("Ошибка входа: {err}")).size(12.0),
-            );
-            if ui.button("Попробовать снова").clicked() {
-                auth.start_login(ui.ctx().clone());
-            }
-        }
-    }
 }
 
 /// Мини-кнопка слева внизу: выбор версии/сборки на стеклянной подложке.
