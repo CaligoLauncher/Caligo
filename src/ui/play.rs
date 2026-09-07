@@ -29,10 +29,19 @@ fn mix(a: egui::Color32, b: egui::Color32, t: f32) -> egui::Color32 {
     egui::Color32::from_rgb(l(a.r(), b.r()), l(a.g(), b.g()), l(a.b(), b.b()))
 }
 
-/// Главное меню — основной экран лаунчера (не вкладка): в центре — игрок
-/// (а в будущем и его группа), справа — панель группы на всю высоту,
-/// внизу две мини-кнопки: слева выбор сборки, справа ИГРАТЬ.
-/// Профиль игрока живёт в верхней полоске (см. `app.rs`).
+/// Тонкая светлая кромка «стекла» для панелей.
+fn glass_edge(painter: &egui::Painter, rect: egui::Rect, rounding: egui::Rounding) {
+    painter.rect_stroke(
+        rect,
+        rounding,
+        egui::Stroke::new(1.0, egui::Color32::from_white_alpha(12)),
+    );
+}
+
+/// Главное меню — основной экран лаунчера: в центре — игрок (а в будущем
+/// и его группа), справа — панель группы на всю высоту, внизу две
+/// мини-кнопки: слева выбор сборки, справа ИГРАТЬ. Профиль игрока — в
+/// мини-окошке справа сверху (см. `app.rs`).
 pub fn show(
     ui: &mut egui::Ui,
     theme: &ThemePreset,
@@ -114,7 +123,7 @@ fn paperdoll_area(
         ui.painter().text(
             rect.center(),
             egui::Align2::CENTER_CENTER,
-            "Войди или введи ник на верхней полоске —\nи твой персонаж появится здесь",
+            "Войди в профиль справа сверху —\nи твой персонаж появится здесь",
             egui::FontId::proportional(15.0),
             ui.visuals().weak_text_color(),
         );
@@ -152,8 +161,10 @@ fn paperdoll_area(
 /// Правая панель на всю высоту: группа/друзья
 /// (пока заглушки: система друзей появится в будущих версиях).
 fn friends_panel(ui: &mut egui::Ui, rect: egui::Rect, theme: &ThemePreset) {
+    let accent = theme.accent_color();
     let rounding = egui::Rounding::same(theme.rounding * 1.4);
     ui.painter().rect_filled(rect, rounding, theme.glass_fill());
+    glass_edge(ui.painter(), rect, rounding);
 
     let inner = rect.shrink(14.0);
     let mut ui = ui.new_child(
@@ -162,7 +173,12 @@ fn friends_panel(ui: &mut egui::Ui, rect: egui::Rect, theme: &ThemePreset) {
             .layout(egui::Layout::top_down(egui::Align::Min)),
     );
 
-    ui.label(egui::RichText::new("ГРУППА").small().weak());
+    ui.horizontal(|ui| {
+        let (dot, _) = ui.allocate_exact_size(egui::vec2(8.0, 8.0), egui::Sense::hover());
+        ui.painter()
+            .circle_filled(dot.center(), 3.0, accent.gamma_multiply(0.9));
+        ui.label(egui::RichText::new("ГРУППА").small().weak());
+    });
     ui.add_space(8.0);
     for i in 0..3 {
         ghost_friend_row(&mut ui, i);
@@ -205,11 +221,9 @@ fn version_button(
     play: &mut PlayState,
     launch: &LaunchManager,
 ) {
-    ui.painter().rect_filled(
-        rect,
-        egui::Rounding::same(theme.rounding * 1.2),
-        theme.glass_fill(),
-    );
+    let rounding = egui::Rounding::same(theme.rounding * 1.2);
+    ui.painter().rect_filled(rect, rounding, theme.glass_fill());
+    glass_edge(ui.painter(), rect, rounding);
     let inner = rect.shrink2(egui::vec2(12.0, 6.0));
     let mut ui = ui.new_child(
         egui::UiBuilder::new()
