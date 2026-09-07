@@ -250,7 +250,7 @@ struct DrawFace {
     color: egui::Color32,
 }
 
-/// Рисует «бумажную куклу»: мягкое покачивание, плоское затенение,
+/// Рисует «бумажную куклу»: статичная поза, плоское затенение,
 /// свечение и тень под ногами, ник над головой.
 pub fn paint_paperdoll(
     painter: &egui::Painter,
@@ -258,17 +258,17 @@ pub fn paint_paperdoll(
     tex: Option<&egui::TextureHandle>,
     name: Option<&str>,
     accent: egui::Color32,
-    t: f32,
+    _t: f32,
 ) {
-    let yaw: f32 = -0.45 + (t * 0.35).sin() * 0.35;
+    let yaw: f32 = -0.45;
     let pitch: f32 = 0.10;
     let (sy, cy) = yaw.sin_cos();
     let (sp, cp) = pitch.sin_cos();
-    let scale = (rect.height() * 0.78 / 38.0)
-        .min(rect.width() * 0.35 / 20.0)
+    let scale = (rect.height() * 0.70 / 38.0)
+        .min(rect.width() * 0.31 / 20.0)
         .max(2.0);
     let cx = rect.center().x;
-    let bob = (t * 0.9).sin() * 0.5;
+    let bob = 0.0_f32;
     let feet_y = rect.center().y + scale * 18.0;
 
     // Свечение и тень под ногами.
