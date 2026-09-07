@@ -6,7 +6,7 @@ use crate::auth::{AuthManager, AuthState};
 use crate::background::Background;
 use crate::effects::Mist;
 use crate::launch::LaunchManager;
-use crate::skin::SkinManager;
+use crate::skin::{self, SkinManager};
 use crate::theme::ThemePreset;
 use crate::ui;
 
@@ -16,10 +16,10 @@ const SIDEBAR_W: f32 = 72.0;
 const SIDEBAR_CARD_W: f32 = 56.0;
 const SIDEBAR_MARGIN: f32 = 8.0;
 const SIDEBAR_ROUNDING: f32 = 18.0;
+/// Ширина мини-окна профиля.
+const PROFILE_W: f32 = 250.0;
 
-/// Экраны лаунчера. `Home` — главное меню (основной экран, не вкладка):
-/// в сайдбаре его нет, назад ведут клик по имени Caligo в титлбаре
-/// или повторный клик по активной вкладке.
+/// Экраны лаунчера. `Home` — главное меню (основной экран лаунчера).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
     Home,
@@ -46,6 +46,16 @@ fn sidebar_card_rect(screen: egui::Rect) -> egui::Rect {
 fn mix(a: egui::Color32, b: egui::Color32, t: f32) -> egui::Color32 {
     let l = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t.clamp(0.0, 1.0)) as u8;
     egui::Color32::from_rgb(l(a.r(), b.r()), l(a.g(), b.g()), l(a.b(), b.b()))
+}
+
+/// Тонкая светлая кромка «стекла» — общий приём дорогих тёмных UI:
+/// панель читается краем, а не жёсткой рамкой.
+fn glass_edge(painter: &egui::Painter, rect: egui::Rect, rounding: egui::Rounding) {
+    painter.rect_stroke(
+        rect,
+        rounding,
+        egui::Stroke::new(1.0, egui::Color32::from_white_alpha(12)),
+    );
 }
 
 /// Подключает фирменный шрифт Manrope (открытая лицензия OFL, есть
@@ -76,6 +86,7 @@ pub struct CaligoApp {
     mist: Mist,
     started_at: Instant,
     tab_switched_at: Instant,
+    profile_open: bool,
 }
 
 impl CaligoApp {
@@ -96,6 +107,7 @@ impl CaligoApp {
             mist: Mist::new(),
             started_at: Instant::now(),
             tab_switched_at: Instant::now(),
+            profile_open: false,
         }
     }
 
@@ -106,12 +118,31 @@ impl CaligoApp {
         }
     }
 
+    /// Кто мы сейчас — ключ для загрузки скина (UUID аккаунта или
+    /// оффлайн-ник), чтобы аватар в чипе профиля жил на любом экране.
+    fn skin_key(&self) -> Option<String> {
+        match self.auth.state() {
+            AuthState::SignedIn(account) => Some(account.uuid.clone()),
+            _ => {
+                let name = self.play.offline_name.trim().to_string();
+                if name.is_empty() {
+                    None
+                } else {
+                    Some(name)
+                }
+            }
+        }
+    }
+
     /// Кастомный титлбар: полностью прозрачный, без подложки и краёв.
-    /// Слева — знак Caligo и профиль игрока, справа — кнопки окна
-    /// («точки», раскрывающие цвет при наведении, а не системные глифы).
+    /// Слева — знак и имя Caligo, справа — чип профиля (мини-окошко
+    /// открывается по клику) и кнопки окна («точки»).
     fn show_titlebar(&mut self, ctx: &egui::Context) {
         let accent = self.theme.accent_color();
+        self.skin.ensure(ctx, self.skin_key());
         let mut go_home = false;
+        let mut chip_rect: Option<egui::Rect> = None;
+        let mut toggle_profile = false;
         egui::TopBottomPanel::top("titlebar")
             .exact_height(TITLEBAR_H)
             .frame(egui::Frame::none())
@@ -145,9 +176,6 @@ impl CaligoApp {
                     if brand.on_hover_text("На главную").clicked() {
                         go_home = true;
                     }
-                    ui.add_space(16.0);
-                    // Профиль игрока — слева на верхней полоске.
-                    profile_strip(ui, accent, &self.auth, &mut self.play);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.add_space(10.0);
                         if window_button(ui, true, "Закрыть").clicked() {
@@ -161,17 +189,63 @@ impl CaligoApp {
                         if window_button(ui, false, "Свернуть").clicked() {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
                         }
+                        ui.add_space(12.0);
+                        // Мини-чип профиля: лицо скина + ник; клик — окно.
+                        let chip =
+                            profile_chip(ui, &self.theme, &self.auth, &self.play, &self.skin);
+                        chip_rect = Some(chip.rect);
+                        if chip.clicked() {
+                            toggle_profile = true;
+                        }
                     });
                 });
             });
         if go_home {
             self.switch_tab(Tab::Home);
         }
+        if toggle_profile {
+            self.profile_open = !self.profile_open;
+        } else if self.profile_open {
+            if let Some(anchor) = chip_rect {
+                self.show_profile_popup(ctx, anchor);
+            }
+        }
+    }
+
+    /// Мини-окошко профиля под чипом: вход через Microsoft, оффлайн-ник,
+    /// код устройства, выход. Закрывается кликом мимо или Esc.
+    fn show_profile_popup(&mut self, ctx: &egui::Context, anchor: egui::Rect) {
+        let accent = self.theme.accent_color();
+        let bg = self.theme.background_color();
+        let fill = egui::Color32::from_rgba_unmultiplied(bg.r(), bg.g(), bg.b(), 246);
+        let pos = egui::pos2((anchor.max.x - PROFILE_W).max(8.0), anchor.max.y + 8.0);
+        let area = egui::Area::new(egui::Id::new("profile_popup"))
+            .fixed_pos(pos)
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                egui::Frame::none()
+                    .fill(fill)
+                    .rounding(egui::Rounding::same(14.0))
+                    .stroke(egui::Stroke::new(1.0, egui::Color32::from_white_alpha(16)))
+                    .inner_margin(egui::Margin::same(16.0))
+                    .show(ui, |ui| {
+                        ui.set_width(PROFILE_W - 32.0);
+                        profile_window(ui, accent, &self.auth, &mut self.play, &self.skin);
+                    });
+            });
+        let clicked_away = ctx.input(|i| i.pointer.any_pressed())
+            && ctx
+                .input(|i| i.pointer.interact_pos())
+                .map_or(false, |p| {
+                    !area.response.rect.contains(p) && !anchor.expand(4.0).contains(p)
+                });
+        if clicked_away || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.profile_open = false;
+        }
     }
 
     /// Левое меню — «плавающая» скруглённая карточка с иконками.
-    /// Главного меню здесь нет: оно — основной экран, а не вкладка.
-    /// Повторный клик по активной вкладке возвращает на главную.
+    /// Первая кнопка — главное меню.
     fn show_sidebar(&mut self, ctx: &egui::Context) {
         let accent = self.theme.accent_color();
         let mut clicked: Option<Tab> = None;
@@ -182,11 +256,9 @@ impl CaligoApp {
             .show_separator_line(false)
             .show(ctx, |ui| {
                 let card = sidebar_card_rect(ctx.screen_rect());
-                ui.painter().rect_filled(
-                    card,
-                    egui::Rounding::same(SIDEBAR_ROUNDING),
-                    self.theme.glass_fill(),
-                );
+                let rounding = egui::Rounding::same(SIDEBAR_ROUNDING);
+                ui.painter().rect_filled(card, rounding, self.theme.glass_fill());
+                glass_edge(ui.painter(), card, rounding);
                 let mut card_ui = ui.new_child(
                     egui::UiBuilder::new()
                         .max_rect(card)
@@ -194,6 +266,7 @@ impl CaligoApp {
                 );
                 card_ui.add_space(14.0);
                 for (tab, icon, label) in [
+                    (Tab::Home, "🏠", "Главная"),
                     (Tab::Instances, "📦", "Сборки"),
                     (Tab::Settings, "⚙", "Настройки"),
                 ] {
@@ -204,8 +277,7 @@ impl CaligoApp {
                 }
             });
         if let Some(tab) = clicked {
-            let target = if self.tab == tab { Tab::Home } else { tab };
-            self.switch_tab(target);
+            self.switch_tab(tab);
         }
     }
 }
@@ -247,6 +319,7 @@ impl eframe::App for CaligoApp {
             egui::Frame::none()
                 .fill(self.theme.content_tint())
                 .rounding(egui::Rounding::same(SIDEBAR_ROUNDING))
+                .stroke(egui::Stroke::new(1.0, egui::Color32::from_white_alpha(10)))
                 .outer_margin(egui::Margin {
                     left: 0.0,
                     right: SIDEBAR_MARGIN,
@@ -286,66 +359,154 @@ impl eframe::App for CaligoApp {
     }
 }
 
-/// Компактный профиль игрока в верхней полоске: вход через Microsoft,
-/// оффлайн-ник, код устройства и статус входа — всё в одну строку.
-fn profile_strip(
+/// Компактный чип профиля в титлбаре справа: лицо скина + ник
+/// (или «Войти»). Клик открывает мини-окно профиля.
+fn profile_chip(
+    ui: &mut egui::Ui,
+    theme: &ThemePreset,
+    auth: &AuthManager,
+    play: &crate::ui::play::PlayState,
+    skin_mgr: &SkinManager,
+) -> egui::Response {
+    let label = match auth.state() {
+        AuthState::SignedIn(account) => account.username.clone(),
+        AuthState::WaitingForUser { .. } | AuthState::InProgress(_) => "Вход…".to_string(),
+        _ => {
+            let name = play.offline_name.trim();
+            if name.is_empty() {
+                "Войти".to_string()
+            } else {
+                name.to_string()
+            }
+        }
+    };
+    let font = egui::FontId::proportional(13.0);
+    let galley = ui
+        .painter()
+        .layout_no_wrap(label, font, ui.visuals().text_color());
+    let w = galley.size().x + 44.0;
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(w, 26.0), egui::Sense::click());
+    let hover = ui
+        .ctx()
+        .animate_bool(response.id.with("hover"), response.hovered());
+    let rounding = egui::Rounding::same(13.0);
+    let painter = ui.painter();
+    painter.rect_filled(rect, rounding, theme.glass_fill());
+    if hover > 0.0 {
+        painter.rect_filled(
+            rect,
+            rounding,
+            egui::Color32::from_white_alpha((10.0 * hover) as u8),
+        );
+    }
+    glass_edge(painter, rect, rounding);
+    let head = egui::Rect::from_center_size(
+        egui::pos2(rect.min.x + 15.0, rect.center().y),
+        egui::vec2(16.0, 16.0),
+    );
+    skin::paint_head(painter, head, skin_mgr.texture().as_ref(), 4.0);
+    painter.galley(
+        egui::pos2(rect.min.x + 28.0, rect.center().y - galley.size().y / 2.0),
+        galley,
+        ui.visuals().text_color(),
+    );
+    response
+        .on_hover_text("Профиль")
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+/// Содержимое мини-окна профиля.
+fn profile_window(
     ui: &mut egui::Ui,
     accent: egui::Color32,
     auth: &AuthManager,
     play: &mut crate::ui::play::PlayState,
+    skin_mgr: &SkinManager,
 ) {
     match auth.state() {
         AuthState::SignedOut => {
+            ui.label(egui::RichText::new("ПРОФИЛЬ").small().weak());
+            ui.add_space(8.0);
             ui.add(
                 egui::TextEdit::singleline(&mut play.offline_name)
                     .hint_text("Ник (оффлайн)")
-                    .desired_width(130.0),
+                    .desired_width(f32::INFINITY),
             );
-            ui.add_space(6.0);
-            if ui.button("Войти через Microsoft").clicked() {
+            ui.add_space(8.0);
+            if ui
+                .add_sized(
+                    [ui.available_width(), 32.0],
+                    egui::Button::new("Войти через Microsoft"),
+                )
+                .clicked()
+            {
                 auth.start_login(ui.ctx().clone());
             }
+            ui.add_space(6.0);
+            ui.label(
+                egui::RichText::new("Без входа доступен только оффлайн-режим")
+                    .weak()
+                    .size(11.0),
+            );
         }
         AuthState::WaitingForUser {
             verification_uri,
             user_code,
         } => {
-            ui.label(egui::RichText::new("Код входа:").size(12.0).weak());
+            ui.label(egui::RichText::new("Открой ссылку и введи код:").size(13.0));
+            ui.hyperlink(&verification_uri);
+            ui.add_space(4.0);
             ui.label(
                 egui::RichText::new(&user_code)
+                    .size(22.0)
                     .monospace()
                     .strong()
-                    .size(15.0)
                     .color(accent),
             );
-            if ui.small_button("Копировать").clicked() {
+            if ui.button("Скопировать код").clicked() {
                 ui.ctx().output_mut(|o| o.copied_text = user_code.clone());
             }
-            ui.hyperlink_to("Ввести код", &verification_uri);
             ui.spinner();
             ui.ctx()
                 .request_repaint_after(std::time::Duration::from_millis(500));
         }
         AuthState::InProgress(step) => {
-            ui.spinner();
-            ui.label(egui::RichText::new(step).size(12.0));
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label(egui::RichText::new(step).size(13.0));
+            });
             ui.ctx()
                 .request_repaint_after(std::time::Duration::from_millis(500));
         }
         AuthState::SignedIn(account) => {
-            ui.label(egui::RichText::new("👤").size(13.0));
-            ui.colored_label(accent, egui::RichText::new(&account.username).strong());
-            if ui.small_button("Выйти").clicked() {
+            ui.horizontal(|ui| {
+                let (head, _) =
+                    ui.allocate_exact_size(egui::vec2(36.0, 36.0), egui::Sense::hover());
+                skin::paint_head(ui.painter(), head, skin_mgr.texture().as_ref(), 8.0);
+                ui.add_space(4.0);
+                ui.vertical(|ui| {
+                    ui.colored_label(
+                        accent,
+                        egui::RichText::new(&account.username).strong().size(15.0),
+                    );
+                    ui.label(egui::RichText::new("Microsoft-аккаунт").weak().size(11.0));
+                });
+            });
+            ui.add_space(10.0);
+            if ui
+                .add_sized([ui.available_width(), 28.0], egui::Button::new("Выйти"))
+                .clicked()
+            {
                 auth.sign_out();
             }
         }
         AuthState::Failed(err) => {
             ui.colored_label(
                 egui::Color32::from_rgb(255, 120, 120),
-                egui::RichText::new("Ошибка входа").size(12.0),
-            )
-            .on_hover_text(err);
-            if ui.small_button("Снова").clicked() {
+                egui::RichText::new(format!("Ошибка входа: {err}")).size(12.0),
+            );
+            ui.add_space(6.0);
+            if ui.button("Попробовать снова").clicked() {
                 auth.start_login(ui.ctx().clone());
             }
         }
