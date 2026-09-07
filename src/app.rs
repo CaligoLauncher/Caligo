@@ -21,10 +21,6 @@ const SIDEBAR_MARGIN: f32 = 8.0;
 const SIDEBAR_ROUNDING: f32 = SIDEBAR_CARD_W / 2.0;
 /// Скругление контентных карточек вкладок.
 const CARD_ROUNDING: f32 = 18.0;
-/// Цвета «светофора» macOS (закрыть/свернуть/развернуть).
-const TRAFFIC_RED: egui::Color32 = egui::Color32::from_rgb(255, 95, 87);
-const TRAFFIC_YELLOW: egui::Color32 = egui::Color32::from_rgb(254, 188, 46);
-const TRAFFIC_GREEN: egui::Color32 = egui::Color32::from_rgb(40, 200, 64);
 /// Ширина мини-окна профиля.
 const PROFILE_W: f32 = 250.0;
 
@@ -172,37 +168,8 @@ impl CaligoApp {
                     let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
                     ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
                 }
-                // «Светофор» macOS слева: цветной у активного окна,
-                // серый — у неактивного (по HIG: key window показывает
-                // цвет, неактивное — серые кнопки); символы появляются
-                // при наведении на группу, как в macOS.
-                let focused = ctx.input(|i| i.focused);
-                let zone = egui::Rect::from_min_size(
-                    egui::pos2(bar_rect.min.x + 10.0, bar_rect.min.y),
-                    egui::vec2(64.0, TITLEBAR_H),
-                );
-                let group_hover = ctx
-                    .input(|i| i.pointer.hover_pos())
-                    .map_or(false, |p| zone.contains(p));
                 ui.horizontal_centered(|ui| {
-                    ui.add_space(10.0);
-                    if traffic_light(ui, TRAFFIC_RED, "✕", focused, group_hover, "Закрыть")
-                        .clicked()
-                    {
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                    }
-                    if traffic_light(ui, TRAFFIC_YELLOW, "–", focused, group_hover, "Свернуть")
-                        .clicked()
-                    {
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
-                    }
-                    if traffic_light(ui, TRAFFIC_GREEN, "+", focused, group_hover, "Развернуть")
-                        .clicked()
-                    {
-                        let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
-                    }
-                    ui.add_space(12.0);
+                    ui.add_space(14.0);
                     // Светящаяся точка-«глаз» — маленький фирменный знак.
                     let (dot, _) =
                         ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
@@ -218,7 +185,23 @@ impl CaligoApp {
                         go_home = true;
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.add_space(12.0);
+                        ui.add_space(10.0);
+                        // Кнопки окна справа — как принято в Windows:
+                        // закрыть / развернуть / свернуть. Монохромные,
+                        // рисованные штрихами, с мягким круглым ховером
+                        // (красным — только у «закрыть»).
+                        if window_button(ui, WinGlyph::Close, "Закрыть").clicked() {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
+                        if window_button(ui, WinGlyph::Max, "Развернуть").clicked() {
+                            let maximized =
+                                ctx.input(|i| i.viewport().maximized.unwrap_or(false));
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
+                        }
+                        if window_button(ui, WinGlyph::Min, "Свернуть").clicked() {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                        }
+                        ui.add_space(10.0);
                         // Мини-чип профиля: лицо скина + ник; клик — окно.
                         let chip =
                             profile_chip(ui, &self.theme, &self.auth, &self.play, &self.skin);
@@ -431,7 +414,13 @@ fn profile_chip(
             egui::Color32::from_white_alpha((10.0 * hover) as u8),
         );
     }
-    glass_edge(painter, rect, rounding);
+    // Мягкая обводка без «блика»: на тёмном фоне яркая кромка выглядела
+    // как белая рамка вокруг «Войти».
+    painter.rect_stroke(
+        rect,
+        rounding,
+        egui::Stroke::new(1.0_f32, egui::Color32::from_white_alpha(10)),
+    );
     let head = egui::Rect::from_center_size(
         egui::pos2(rect.min.x + 15.0, rect.center().y),
         egui::vec2(16.0, 16.0),
@@ -545,40 +534,64 @@ fn profile_window(
     }
 }
 
-/// Кнопка «светофора» macOS: цветной кружок 13 px; у неактивного окна —
-/// серый; символ (✕/–/+) проступает при наведении на группу кнопок.
-fn traffic_light(
-    ui: &mut egui::Ui,
-    color: egui::Color32,
-    glyph: &str,
-    focused: bool,
-    group_hover: bool,
-    tooltip: &str,
-) -> egui::Response {
+/// Значки кнопок окна (Windows-стиль, справа).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum WinGlyph {
+    Min,
+    Max,
+    Close,
+}
+
+/// Кнопка окна: монохромный штриховой значок, при наведении — мягкий
+/// круг подсветки («закрыть» подсвечивается красным, как в Windows).
+fn window_button(ui: &mut egui::Ui, glyph: WinGlyph, tooltip: &str) -> egui::Response {
     let (rect, response) =
-        ui.allocate_exact_size(egui::vec2(20.0, TITLEBAR_H), egui::Sense::click());
-    let center = rect.center();
-    let fill = if focused || group_hover {
-        color
-    } else {
-        egui::Color32::from_gray(94)
-    };
-    ui.painter().circle_filled(center, 6.5, fill);
-    ui.painter().circle_stroke(
-        center,
-        6.5,
-        egui::Stroke::new(0.5_f32, egui::Color32::from_black_alpha(70)),
-    );
-    if group_hover {
-        ui.painter().text(
-            center,
-            egui::Align2::CENTER_CENTER,
-            glyph,
-            egui::FontId::proportional(9.0),
-            egui::Color32::from_black_alpha(170),
-        );
+        ui.allocate_exact_size(egui::vec2(30.0, TITLEBAR_H), egui::Sense::click());
+    let hover = ui
+        .ctx()
+        .animate_bool(response.id.with("hover"), response.hovered());
+    let danger = glyph == WinGlyph::Close;
+    if hover > 0.0 {
+        let fill = if danger {
+            egui::Color32::from_rgba_unmultiplied(232, 17, 35, (200.0 * hover) as u8)
+        } else {
+            egui::Color32::from_white_alpha((16.0 * hover) as u8)
+        };
+        ui.painter().circle_filled(rect.center(), 12.0, fill);
     }
-    response.on_hover_text(tooltip)
+    let color = if danger && hover > 0.4 {
+        egui::Color32::WHITE
+    } else {
+        ui.visuals().text_color()
+    };
+    let c = rect.center();
+    let stroke = egui::Stroke::new(1.2_f32, color);
+    match glyph {
+        WinGlyph::Min => {
+            ui.painter()
+                .line_segment([c + egui::vec2(-4.5, 0.0), c + egui::vec2(4.5, 0.0)], stroke);
+        }
+        WinGlyph::Max => {
+            ui.painter().rect_stroke(
+                egui::Rect::from_center_size(c, egui::vec2(9.0, 9.0)),
+                egui::Rounding::same(2.0),
+                stroke,
+            );
+        }
+        WinGlyph::Close => {
+            ui.painter().line_segment(
+                [c + egui::vec2(-4.5, -4.5), c + egui::vec2(4.5, 4.5)],
+                stroke,
+            );
+            ui.painter().line_segment(
+                [c + egui::vec2(-4.5, 4.5), c + egui::vec2(4.5, -4.5)],
+                stroke,
+            );
+        }
+    }
+    response
+        .on_hover_text(tooltip)
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 /// Иконка-кнопка сайдбара: мягкое свечение выбранной вкладки,
