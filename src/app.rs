@@ -15,7 +15,16 @@ const TITLEBAR_H: f32 = 36.0;
 const SIDEBAR_W: f32 = 72.0;
 const SIDEBAR_CARD_W: f32 = 56.0;
 const SIDEBAR_MARGIN: f32 = 8.0;
-const SIDEBAR_ROUNDING: f32 = 18.0;
+/// Сайдбар — капсула: скругление = половине ширины карточки
+/// (Tahoe предпочитает капсульные формы: «чем круглее, тем легче
+/// смотреть»; формы вкладываются в углы окна концентрично).
+const SIDEBAR_ROUNDING: f32 = SIDEBAR_CARD_W / 2.0;
+/// Скругление контентных карточек вкладок.
+const CARD_ROUNDING: f32 = 18.0;
+/// Цвета «светофора» macOS (закрыть/свернуть/развернуть).
+const TRAFFIC_RED: egui::Color32 = egui::Color32::from_rgb(255, 95, 87);
+const TRAFFIC_YELLOW: egui::Color32 = egui::Color32::from_rgb(254, 188, 46);
+const TRAFFIC_GREEN: egui::Color32 = egui::Color32::from_rgb(40, 200, 64);
 /// Ширина мини-окна профиля.
 const PROFILE_W: f32 = 250.0;
 
@@ -42,19 +51,22 @@ fn sidebar_card_rect(screen: egui::Rect) -> egui::Rect {
     )
 }
 
-/// Плавное смешение двух цветов.
-fn mix(a: egui::Color32, b: egui::Color32, t: f32) -> egui::Color32 {
-    let l = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t.clamp(0.0, 1.0)) as u8;
-    egui::Color32::from_rgb(l(a.r(), b.r()), l(a.g(), b.g()), l(a.b(), b.b()))
-}
-
-/// Тонкая светлая кромка «стекла» — общий приём дорогих тёмных UI:
-/// панель читается краем, а не жёсткой рамкой.
+/// Кромка Liquid Glass: тонкий светлый контур по периметру плюс более
+/// яркий «блик» по верхней грани — стекло ловит свет сверху (specular
+/// highlight из HIG); панель читается краем, а не жёсткой рамкой.
 fn glass_edge(painter: &egui::Painter, rect: egui::Rect, rounding: egui::Rounding) {
     painter.rect_stroke(
         rect,
         rounding,
-        egui::Stroke::new(1.0_f32, egui::Color32::from_white_alpha(12)),
+        egui::Stroke::new(1.0_f32, egui::Color32::from_white_alpha(14)),
+    );
+    let r = rounding.nw.max(rounding.ne);
+    painter.line_segment(
+        [
+            egui::pos2(rect.min.x + r, rect.min.y + 0.5),
+            egui::pos2(rect.max.x - r, rect.min.y + 0.5),
+        ],
+        egui::Stroke::new(1.0_f32, egui::Color32::from_white_alpha(36)),
     );
 }
 
@@ -160,8 +172,37 @@ impl CaligoApp {
                     let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
                     ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
                 }
+                // «Светофор» macOS слева: цветной у активного окна,
+                // серый — у неактивного (по HIG: key window показывает
+                // цвет, неактивное — серые кнопки); символы появляются
+                // при наведении на группу, как в macOS.
+                let focused = ctx.input(|i| i.focused);
+                let zone = egui::Rect::from_min_size(
+                    egui::pos2(bar_rect.min.x + 10.0, bar_rect.min.y),
+                    egui::vec2(64.0, TITLEBAR_H),
+                );
+                let group_hover = ctx
+                    .input(|i| i.pointer.hover_pos())
+                    .map_or(false, |p| zone.contains(p));
                 ui.horizontal_centered(|ui| {
-                    ui.add_space(14.0);
+                    ui.add_space(10.0);
+                    if traffic_light(ui, TRAFFIC_RED, "✕", focused, group_hover, "Закрыть")
+                        .clicked()
+                    {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                    if traffic_light(ui, TRAFFIC_YELLOW, "–", focused, group_hover, "Свернуть")
+                        .clicked()
+                    {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                    }
+                    if traffic_light(ui, TRAFFIC_GREEN, "+", focused, group_hover, "Развернуть")
+                        .clicked()
+                    {
+                        let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
+                    }
+                    ui.add_space(12.0);
                     // Светящаяся точка-«глаз» — маленький фирменный знак.
                     let (dot, _) =
                         ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
@@ -177,18 +218,6 @@ impl CaligoApp {
                         go_home = true;
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.add_space(10.0);
-                        if window_button(ui, true, "Закрыть").clicked() {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                        }
-                        if window_button(ui, false, "Развернуть").clicked() {
-                            let maximized =
-                                ctx.input(|i| i.viewport().maximized.unwrap_or(false));
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
-                        }
-                        if window_button(ui, false, "Свернуть").clicked() {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
-                        }
                         ui.add_space(12.0);
                         // Мини-чип профиля: лицо скина + ник; клик — окно.
                         let chip =
@@ -257,7 +286,10 @@ impl CaligoApp {
             .show(ctx, |ui| {
                 let card = sidebar_card_rect(ctx.screen_rect());
                 let rounding = egui::Rounding::same(SIDEBAR_ROUNDING);
-                ui.painter().rect_filled(card, rounding, self.theme.glass_fill());
+                // Regular-стекло: крупный элемент навигации по HIG
+                // непрозрачнее мелких — текст и иконки всегда читаемы.
+                ui.painter()
+                    .rect_filled(card, rounding, self.theme.glass_regular());
                 glass_edge(ui.painter(), card, rounding);
                 let mut card_ui = ui.new_child(
                     egui::UiBuilder::new()
@@ -318,7 +350,7 @@ impl eframe::App for CaligoApp {
         } else {
             egui::Frame::none()
                 .fill(self.theme.content_tint())
-                .rounding(egui::Rounding::same(SIDEBAR_ROUNDING))
+                .rounding(egui::Rounding::same(CARD_ROUNDING))
                 .stroke(self.theme.card_stroke())
                 .outer_margin(egui::Margin {
                     left: 0.0,
@@ -513,20 +545,39 @@ fn profile_window(
     }
 }
 
-/// Кнопка окна в титлбаре: спокойная точка, которая при наведении плавно
-/// разгорается (красным — для закрытия) и чуть увеличивается.
-fn window_button(ui: &mut egui::Ui, danger: bool, tooltip: &str) -> egui::Response {
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::click());
-    let hover = ui.ctx().animate_bool(response.id.with("hover"), response.hovered());
-    let base = ui.visuals().weak_text_color().gamma_multiply(0.7);
-    let target = if danger {
-        egui::Color32::from_rgb(235, 87, 87)
+/// Кнопка «светофора» macOS: цветной кружок 13 px; у неактивного окна —
+/// серый; символ (✕/–/+) проступает при наведении на группу кнопок.
+fn traffic_light(
+    ui: &mut egui::Ui,
+    color: egui::Color32,
+    glyph: &str,
+    focused: bool,
+    group_hover: bool,
+    tooltip: &str,
+) -> egui::Response {
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(20.0, TITLEBAR_H), egui::Sense::click());
+    let center = rect.center();
+    let fill = if focused || group_hover {
+        color
     } else {
-        ui.visuals().text_color()
+        egui::Color32::from_gray(94)
     };
-    let color = mix(base, target, hover);
-    ui.painter()
-        .circle_filled(rect.center(), 5.0 + hover * 1.5, color);
+    ui.painter().circle_filled(center, 6.5, fill);
+    ui.painter().circle_stroke(
+        center,
+        6.5,
+        egui::Stroke::new(0.5_f32, egui::Color32::from_black_alpha(70)),
+    );
+    if group_hover {
+        ui.painter().text(
+            center,
+            egui::Align2::CENTER_CENTER,
+            glyph,
+            egui::FontId::proportional(9.0),
+            egui::Color32::from_black_alpha(170),
+        );
+    }
     response.on_hover_text(tooltip)
 }
 
@@ -543,17 +594,18 @@ fn nav_button(
     let hover = ui
         .ctx()
         .animate_bool(response.id.with("hover"), response.hovered() && !selected);
-    let rounding = egui::Rounding::same(12.0);
+    // Круглые иконки-кнопки: круг концентричен капсуле сайдбара
+    // (Tahoe: иконочные кнопки — круги, текстовые — капсулы).
     if selected {
         // Свечение вокруг активной иконки вместо жёсткой рамки.
         ui.painter()
             .circle_filled(rect.center(), 27.0, accent.gamma_multiply(0.10));
         ui.painter()
-            .rect_filled(rect, rounding, accent.gamma_multiply(0.25));
+            .circle_filled(rect.center(), 21.0, accent.gamma_multiply(0.25));
     } else if hover > 0.0 {
-        ui.painter().rect_filled(
-            rect,
-            rounding,
+        ui.painter().circle_filled(
+            rect.center(),
+            21.0,
             egui::Color32::from_white_alpha((12.0 * hover) as u8),
         );
     }
