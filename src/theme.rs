@@ -27,6 +27,10 @@ pub struct ThemePreset {
     pub accent: [u8; 4],
     /// Panel opacity over the background image, 0.0 to 1.0.
     pub opacity: f32,
+    /// Индивидуальные настройки модулей интерфейса (см. `ModuleStyles`):
+    /// каждый модуль можно расширять и менять его углы, цвет,
+    /// прозрачность и бортики отдельно от остальных.
+    pub modules: ModuleStyles,
 }
 
 impl Default for ThemePreset {
@@ -41,6 +45,7 @@ impl Default for ThemePreset {
             // осветлённый тон акцента.
             accent: [79, 156, 255, 255],
             opacity: 0.92,
+            modules: ModuleStyles::default(),
         }
     }
 }
@@ -286,6 +291,140 @@ impl ThemePreset {
     }
 }
 
+/// Преобразование RGBA-массива пресета в цвет egui.
+pub fn color_arr(c: [u8; 4]) -> egui::Color32 {
+    egui::Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3])
+}
+
+/// Настройки одного модуля интерфейса. Каждое поле — переопределение:
+/// `None` значит «как в теме» (значение выводится из токенов
+/// `ThemePreset`), `Some` — собственное значение модуля.
+/// Прозрачность модуля задаётся альфа-каналом цвета заливки.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ModuleStyle {
+    /// Ширина модуля, px.
+    pub width: Option<f32>,
+    /// Высота модуля, px.
+    pub height: Option<f32>,
+    /// Радиус скругления углов, px.
+    pub rounding: Option<f32>,
+    /// Заливка RGBA (альфа — прозрачность модуля).
+    pub fill: Option<[u8; 4]>,
+    /// Цвет бортика RGBA.
+    pub border_color: Option<[u8; 4]>,
+    /// Толщина бортика, px (0 — без бортика).
+    pub border_width: Option<f32>,
+}
+
+impl ModuleStyle {
+    pub fn width_or(&self, default: f32) -> f32 {
+        self.width.unwrap_or(default)
+    }
+
+    pub fn height_or(&self, default: f32) -> f32 {
+        self.height.unwrap_or(default)
+    }
+
+    pub fn rounding_or(&self, default: f32) -> f32 {
+        self.rounding.unwrap_or(default)
+    }
+
+    pub fn fill_or(&self, default: egui::Color32) -> egui::Color32 {
+        self.fill.map(color_arr).unwrap_or(default)
+    }
+
+    /// Свой бортик модуля, если задан цвет и/или толщина.
+    pub fn border_override(&self) -> Option<egui::Stroke> {
+        if self.border_color.is_none() && self.border_width.is_none() {
+            return None;
+        }
+        let color = self
+            .border_color
+            .map(color_arr)
+            .unwrap_or(egui::Color32::from_white_alpha(14));
+        let width = self.border_width.unwrap_or(1.0);
+        Some(egui::Stroke::new(width, color))
+    }
+
+    pub fn border_or(&self, default: egui::Stroke) -> egui::Stroke {
+        self.border_override().unwrap_or(default)
+    }
+
+    /// Есть ли у модуля хоть одно переопределение.
+    pub fn is_custom(&self) -> bool {
+        self.width.is_some()
+            || self.height.is_some()
+            || self.rounding.is_some()
+            || self.fill.is_some()
+            || self.border_color.is_some()
+            || self.border_width.is_some()
+    }
+}
+
+/// Настройки фона-задника (когда нет фоновой картинки) и атмосферы.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BackgroundStyle {
+    /// Верхний цвет градиента (None — выводится из цвета темы).
+    pub top: Option<[u8; 4]>,
+    /// Нижний цвет градиента (None — выводится из цвета темы).
+    pub bottom: Option<[u8; 4]>,
+    /// Акцентные свечения на заднике. По умолчанию выключены:
+    /// низкоальфовые круги на плавном градиенте дают видимые «кольца».
+    pub glow: bool,
+    /// Сила свечений (множитель альфы).
+    pub glow_strength: f32,
+    /// Сила виньетки (0 — выключена, 1 — как задумано).
+    pub vignette: f32,
+}
+
+impl Default for BackgroundStyle {
+    fn default() -> Self {
+        Self {
+            top: None,
+            bottom: None,
+            glow: false,
+            glow_strength: 1.0,
+            vignette: 1.0,
+        }
+    }
+}
+
+/// Индивидуальные настройки модулей интерфейса. Всё сериализуется в тот
+/// же JSON-пресет темы, так что кастомизацией можно делиться одним
+/// файлом (важно для будущих серверных манифестов).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ModuleStyles {
+    pub titlebar: ModuleStyle,
+    pub sidebar: ModuleStyle,
+    pub group_panel: ModuleStyle,
+    pub version_button: ModuleStyle,
+    pub play_button: ModuleStyle,
+    pub profile_chip: ModuleStyle,
+    pub tab_card: ModuleStyle,
+    pub background: BackgroundStyle,
+    /// Частицы «мглы» на фоне.
+    pub mist: bool,
+}
+
+impl Default for ModuleStyles {
+    fn default() -> Self {
+        Self {
+            titlebar: ModuleStyle::default(),
+            sidebar: ModuleStyle::default(),
+            group_panel: ModuleStyle::default(),
+            version_button: ModuleStyle::default(),
+            play_button: ModuleStyle::default(),
+            profile_chip: ModuleStyle::default(),
+            tab_card: ModuleStyle::default(),
+            background: BackgroundStyle::default(),
+            mist: true,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -326,5 +465,28 @@ mod tests {
         let s1 = theme.surface(1);
         let s5 = theme.surface(5);
         assert!(s5.r() > s1.r() && s5.g() > s1.g() && s5.b() > s1.b());
+    }
+
+    #[test]
+    fn module_overrides_parse_and_resolve() {
+        let parsed = ThemePreset::from_json(
+            r#"{"name":"X","modules":{"play_button":{"rounding":8.0,"fill":[255,0,0,255]},"mist":false}}"#,
+        )
+        .unwrap();
+        assert!(!parsed.modules.mist);
+        assert_eq!(parsed.modules.play_button.rounding_or(24.0), 8.0);
+        assert!(parsed.modules.play_button.is_custom());
+        // Незатронутый модуль наследует значения темы.
+        assert_eq!(parsed.modules.sidebar.rounding_or(28.0), 28.0);
+        assert!(!parsed.modules.sidebar.is_custom());
+    }
+
+    #[test]
+    fn preset_without_modules_uses_defaults() {
+        let parsed = ThemePreset::from_json(r#"{"name":"Old"}"#).unwrap();
+        assert!(parsed.modules.mist);
+        assert!(!parsed.modules.background.glow);
+        assert_eq!(parsed.modules.background.vignette, 1.0);
+        assert!(parsed.modules.play_button.border_override().is_none());
     }
 }
