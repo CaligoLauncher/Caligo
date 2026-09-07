@@ -192,40 +192,48 @@ fn friends_panel(ui: &mut egui::Ui, rect: egui::Rect, theme: &ThemePreset) {
                 .color(theme.text_tertiary()),
         );
     });
-    ui.add_space(8.0);
-    for i in 0..3 {
-        ghost_friend_row(&mut ui, i);
-        ui.add_space(6.0);
-    }
-    ui.add_space(8.0);
-    ui.label(
-        egui::RichText::new("Друзья и совместные сборки появятся в будущих версиях")
-            .size(12.0)
-            .color(theme.text_tertiary()),
+    // Тихая заглушка вместо «скелетонов»: пустые серые ряды выглядели как
+    // незагрузившийся контент. Один спокойный знак «+» и подпись честнее.
+    let zone = ui.available_rect_before_wrap();
+    let c = egui::pos2(zone.center().x, zone.min.y + 96.0);
+    ui.painter()
+        .circle_filled(c, 22.0, accent.gamma_multiply(0.10));
+    ui.painter().circle_stroke(
+        c,
+        22.0,
+        egui::Stroke::new(1.0_f32, accent.gamma_multiply(0.35)),
+    );
+    ui.painter().text(
+        c,
+        egui::Align2::CENTER_CENTER,
+        "+",
+        egui::FontId::proportional(20.0),
+        accent.gamma_multiply(0.8),
+    );
+    ui.painter().text(
+        egui::pos2(c.x, c.y + 42.0),
+        egui::Align2::CENTER_CENTER,
+        "Пока никого",
+        egui::FontId::proportional(13.0),
+        theme.text_body(),
+    );
+    ui.painter().text(
+        egui::pos2(c.x, c.y + 60.0),
+        egui::Align2::CENTER_CENTER,
+        "Друзья и совместные сборки",
+        egui::FontId::proportional(11.0),
+        theme.text_tertiary(),
+    );
+    ui.painter().text(
+        egui::pos2(c.x, c.y + 74.0),
+        egui::Align2::CENTER_CENTER,
+        "появятся в будущих версиях",
+        egui::FontId::proportional(11.0),
+        theme.text_tertiary(),
     );
 }
 
-/// «Призрачный» слот друга: место, где встанет карточка живого человека.
-fn ghost_friend_row(ui: &mut egui::Ui, i: usize) {
-    let w = ui.available_width();
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(w, 38.0), egui::Sense::hover());
-    // Капсульный слот: радиус = половине высоты (форма контролов Tahoe).
-    let rounding = egui::Rounding::same(19.0);
-    let alpha = 5u8.saturating_sub(i as u8);
-    ui.painter()
-        .rect_filled(rect, rounding, egui::Color32::from_white_alpha(alpha.max(2)));
-    ui.painter().circle_filled(
-        egui::pos2(rect.min.x + 19.0, rect.center().y),
-        11.0,
-        egui::Color32::from_white_alpha(10),
-    );
-    let bar = egui::Rect::from_min_size(
-        egui::pos2(rect.min.x + 38.0, rect.center().y - 4.0),
-        egui::vec2((w - 56.0).max(20.0) * (0.9 - 0.15 * i as f32), 8.0),
-    );
-    ui.painter()
-        .rect_filled(bar, egui::Rounding::same(4.0), egui::Color32::from_white_alpha(8));
-}
+
 
 /// Мини-кнопка слева внизу: выбор версии/сборки на стеклянной подложке.
 fn version_button(
@@ -239,7 +247,7 @@ fn version_button(
     // монохромный контроль: цвет оставлен только главному действию.
     let rounding = egui::Rounding::same(BTN_H / 2.0);
     ui.painter().rect_filled(rect, rounding, theme.glass_dim());
-    ui.painter().rect_filled(rect, rounding, theme.glass_clear());
+    ui.painter().rect_filled(rect, rounding, theme.card_fill());
     glass_edge(ui.painter(), rect, rounding);
     let inner = rect.shrink2(egui::vec2(16.0, 6.0));
     let mut ui = ui.new_child(
@@ -374,16 +382,14 @@ fn play_button_at(
     let painter = ui.painter();
     if enabled {
         painter.rect_filled(
-            rect.expand(8.0 + 3.0 * hover),
-            egui::Rounding::same(rect.height() / 2.0 + 8.0),
-            accent.gamma_multiply(0.05 * pulse + 0.10 * hover),
+            rect.expand(9.0 + 3.0 * hover),
+            egui::Rounding::same(rect.height() / 2.0 + 9.0),
+            accent.gamma_multiply(0.10 * pulse + 0.14 * hover),
         );
     }
-    let fill = if enabled {
-        egui::Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 216)
-    } else {
-        theme.glass_clear()
-    };
+    // Полный, непрозрачный акцент: главное действие не должно тонуть
+    // в тёмном фоне.
+    let fill = if enabled { accent } else { theme.glass_clear() };
     painter.rect_filled(rect, rounding, fill);
     if enabled && hover > 0.0 {
         painter.rect_filled(
@@ -397,7 +403,7 @@ fn play_button_at(
         rect.min,
         egui::pos2(rect.max.x, rect.min.y + rect.height() * 0.5),
     );
-    painter.rect_filled(sheen, rounding, egui::Color32::from_white_alpha(12));
+    painter.rect_filled(sheen, rounding, egui::Color32::from_white_alpha(24));
     let text_color = if enabled {
         egui::Color32::WHITE
     } else {
