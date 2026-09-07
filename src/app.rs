@@ -11,14 +11,11 @@ use crate::theme::ThemePreset;
 use crate::ui;
 
 const TITLEBAR_H: f32 = 36.0;
-/// Ширина зоны сайдбара (панель + отступы вокруг «плавающей» карточки).
-const SIDEBAR_W: f32 = 72.0;
+/// Ширина «плавающей» карточки сайдбара по умолчанию. Сайдбар — капсула:
+/// скругление по умолчанию = половине ширины карточки (Tahoe предпочитает
+/// капсульные формы: «чем круглее, тем легче смотреть»).
 const SIDEBAR_CARD_W: f32 = 56.0;
 const SIDEBAR_MARGIN: f32 = 8.0;
-/// Сайдбар — капсула: скругление = половине ширины карточки
-/// (Tahoe предпочитает капсульные формы: «чем круглее, тем легче
-/// смотреть»; формы вкладываются в углы окна концентрично).
-const SIDEBAR_ROUNDING: f32 = SIDEBAR_CARD_W / 2.0;
 /// Скругление контентных карточек вкладок.
 const CARD_ROUNDING: f32 = 18.0;
 /// Ширина мини-окна профиля.
@@ -34,23 +31,36 @@ pub enum Tab {
 
 /// «Плавающая» скруглённая карточка левого меню (не на всю высоту,
 /// с отступами от краёв окна — без ровных системных краёв).
-fn sidebar_card_rect(screen: egui::Rect) -> egui::Rect {
+/// Ширина сайдбара и высота титлбара берутся из настроек модулей.
+fn sidebar_card_rect(screen: egui::Rect, theme: &ThemePreset) -> egui::Rect {
+    let titlebar_h = theme.modules.titlebar.height_or(TITLEBAR_H);
+    let w = theme.modules.sidebar.width_or(SIDEBAR_CARD_W);
     egui::Rect::from_min_size(
         egui::pos2(
             screen.min.x + SIDEBAR_MARGIN,
-            screen.min.y + TITLEBAR_H + SIDEBAR_MARGIN,
+            screen.min.y + titlebar_h + SIDEBAR_MARGIN,
         ),
-        egui::vec2(
-            SIDEBAR_CARD_W,
-            screen.height() - TITLEBAR_H - 2.0 * SIDEBAR_MARGIN,
-        ),
+        egui::vec2(w, screen.height() - titlebar_h - 2.0 * SIDEBAR_MARGIN),
     )
 }
 
 /// Кромка Liquid Glass: тонкий светлый контур по периметру плюс более
 /// яркий «блик» по верхней грани — стекло ловит свет сверху (specular
 /// highlight из HIG); панель читается краем, а не жёсткой рамкой.
-fn glass_edge(painter: &egui::Painter, rect: egui::Rect, rounding: egui::Rounding) {
+/// Если пользователь задал модулю собственный бортик (цвет/толщину),
+/// рисуется только он — без «блика».
+fn glass_edge_styled(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    rounding: egui::Rounding,
+    custom: Option<egui::Stroke>,
+) {
+    if let Some(stroke) = custom {
+        if stroke.width > 0.0 {
+            painter.rect_stroke(rect, rounding, stroke);
+        }
+        return;
+    }
     painter.rect_stroke(
         rect,
         rounding,
@@ -151,12 +161,29 @@ impl CaligoApp {
         let mut go_home = false;
         let mut chip_rect: Option<egui::Rect> = None;
         let mut toggle_profile = false;
+        let tb_style = self.theme.modules.titlebar.clone();
+        let tb_h = tb_style.height_or(TITLEBAR_H);
         egui::TopBottomPanel::top("titlebar")
-            .exact_height(TITLEBAR_H)
+            .exact_height(tb_h)
             .frame(egui::Frame::none())
             .show_separator_line(false)
             .show(ctx, |ui| {
                 let bar_rect = ui.max_rect();
+                // По умолчанию титлбар полностью прозрачный; заливка и
+                // бортик появляются только если заданы в настройках.
+                if tb_style.is_custom() {
+                    let rounding = egui::Rounding::same(tb_style.rounding_or(0.0));
+                    ui.painter().rect_filled(
+                        bar_rect,
+                        rounding,
+                        tb_style.fill_or(egui::Color32::TRANSPARENT),
+                    );
+                    if let Some(stroke) = tb_style.border_override() {
+                        if stroke.width > 0.0 {
+                            ui.painter().rect_stroke(bar_rect, rounding, stroke);
+                        }
+                    }
+                }
                 // Сначала зона перетаскивания, потом кнопки — кнопки выше по
                 // z-порядку и получают клики первыми.
                 let drag =
@@ -190,15 +217,15 @@ impl CaligoApp {
                         // закрыть / развернуть / свернуть. Монохромные,
                         // рисованные штрихами, с мягким круглым ховером
                         // (красным — только у «закрыть»).
-                        if window_button(ui, WinGlyph::Close, "Закрыть").clicked() {
+                        if window_button(ui, WinGlyph::Close, "Закрыть", tb_h).clicked() {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                         }
-                        if window_button(ui, WinGlyph::Max, "Развернуть").clicked() {
+                        if window_button(ui, WinGlyph::Max, "Развернуть", tb_h).clicked() {
                             let maximized =
                                 ctx.input(|i| i.viewport().maximized.unwrap_or(false));
                             ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
                         }
-                        if window_button(ui, WinGlyph::Min, "Свернуть").clicked() {
+                        if window_button(ui, WinGlyph::Min, "Свернуть", tb_h).clicked() {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
                         }
                         ui.add_space(10.0);
@@ -261,19 +288,26 @@ impl CaligoApp {
     fn show_sidebar(&mut self, ctx: &egui::Context) {
         let accent = self.theme.accent_color();
         let mut clicked: Option<Tab> = None;
+        let card = sidebar_card_rect(ctx.screen_rect(), &self.theme);
+        let sb_style = self.theme.modules.sidebar.clone();
         egui::SidePanel::left("nav")
             .resizable(false)
-            .exact_width(SIDEBAR_W)
+            .exact_width(card.width() + 2.0 * SIDEBAR_MARGIN)
             .frame(egui::Frame::none())
             .show_separator_line(false)
             .show(ctx, |ui| {
-                let card = sidebar_card_rect(ctx.screen_rect());
-                let rounding = egui::Rounding::same(SIDEBAR_ROUNDING);
+                // Капсула по умолчанию: скругление = половине ширины;
+                // и радиус, и заливка, и бортик настраиваются.
+                let rounding =
+                    egui::Rounding::same(sb_style.rounding_or(card.width() / 2.0));
                 // Regular-стекло: крупный элемент навигации по HIG
                 // непрозрачнее мелких — текст и иконки всегда читаемы.
-                ui.painter()
-                    .rect_filled(card, rounding, self.theme.glass_regular());
-                glass_edge(ui.painter(), card, rounding);
+                ui.painter().rect_filled(
+                    card,
+                    rounding,
+                    sb_style.fill_or(self.theme.glass_regular()),
+                );
+                glass_edge_styled(ui.painter(), card, rounding, sb_style.border_override());
                 let mut card_ui = ui.new_child(
                     egui::UiBuilder::new()
                         .max_rect(card)
@@ -302,14 +336,22 @@ impl eframe::App for CaligoApp {
         let screen = ctx.screen_rect();
         // «Стекло» только под карточкой сайдбара: титлбар полностью
         // прозрачный, размытый срез фона рисуется со скруглением карточки.
-        let card = sidebar_card_rect(screen);
+        let card = sidebar_card_rect(screen, &self.theme);
+        let sb_rounding = self
+            .theme
+            .modules
+            .sidebar
+            .rounding_or(card.width() / 2.0);
         self.background.paint(
             ctx,
             &self.theme,
-            &[(card, egui::Rounding::same(SIDEBAR_ROUNDING))],
+            &[(card, egui::Rounding::same(sb_rounding))],
         );
         // Атмосферная «мгла»: светлячки поверх фона, под панелями.
-        self.mist.paint(ctx, self.theme.accent_color());
+        // Отключается в настройках.
+        if self.theme.modules.mist {
+            self.mist.paint(ctx, self.theme.accent_color());
+        }
 
         self.show_titlebar(ctx);
         self.show_sidebar(ctx);
@@ -331,10 +373,11 @@ impl eframe::App for CaligoApp {
                 })
                 .inner_margin(egui::Margin::same(24.0))
         } else {
+            let tc = &self.theme.modules.tab_card;
             egui::Frame::none()
-                .fill(self.theme.content_tint())
-                .rounding(egui::Rounding::same(CARD_ROUNDING))
-                .stroke(self.theme.card_stroke())
+                .fill(tc.fill_or(self.theme.content_tint()))
+                .rounding(egui::Rounding::same(tc.rounding_or(CARD_ROUNDING)))
+                .stroke(tc.border_or(self.theme.card_stroke()))
                 .outer_margin(egui::Margin {
                     left: 0.0,
                     right: SIDEBAR_MARGIN,
@@ -395,18 +438,20 @@ fn profile_chip(
             }
         }
     };
+    let style = &theme.modules.profile_chip;
     let font = egui::FontId::proportional(13.0);
     let galley = ui
         .painter()
         .layout_no_wrap(label, font, ui.visuals().text_color());
-    let w = galley.size().x + 44.0;
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(w, 26.0), egui::Sense::click());
+    let h = style.height_or(26.0);
+    let w = style.width_or(galley.size().x + 44.0);
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(w, h), egui::Sense::click());
     let hover = ui
         .ctx()
         .animate_bool(response.id.with("hover"), response.hovered());
-    let rounding = egui::Rounding::same(13.0);
+    let rounding = egui::Rounding::same(style.rounding_or(h / 2.0));
     let painter = ui.painter();
-    painter.rect_filled(rect, rounding, theme.glass_fill());
+    painter.rect_filled(rect, rounding, style.fill_or(theme.glass_fill()));
     if hover > 0.0 {
         painter.rect_filled(
             rect,
@@ -415,12 +460,14 @@ fn profile_chip(
         );
     }
     // Мягкая обводка без «блика»: на тёмном фоне яркая кромка выглядела
-    // как белая рамка вокруг «Войти».
-    painter.rect_stroke(
-        rect,
-        rounding,
-        egui::Stroke::new(1.0_f32, egui::Color32::from_white_alpha(10)),
-    );
+    // как белая рамка вокруг «Войти». Бортик настраивается.
+    let stroke = style.border_or(egui::Stroke::new(
+        1.0_f32,
+        egui::Color32::from_white_alpha(10),
+    ));
+    if stroke.width > 0.0 {
+        painter.rect_stroke(rect, rounding, stroke);
+    }
     let head = egui::Rect::from_center_size(
         egui::pos2(rect.min.x + 15.0, rect.center().y),
         egui::vec2(16.0, 16.0),
@@ -544,9 +591,9 @@ enum WinGlyph {
 
 /// Кнопка окна: монохромный штриховой значок, при наведении — мягкий
 /// круг подсветки («закрыть» подсвечивается красным, как в Windows).
-fn window_button(ui: &mut egui::Ui, glyph: WinGlyph, tooltip: &str) -> egui::Response {
+fn window_button(ui: &mut egui::Ui, glyph: WinGlyph, tooltip: &str, bar_h: f32) -> egui::Response {
     let (rect, response) =
-        ui.allocate_exact_size(egui::vec2(30.0, TITLEBAR_H), egui::Sense::click());
+        ui.allocate_exact_size(egui::vec2(30.0, bar_h), egui::Sense::click());
     let hover = ui
         .ctx()
         .animate_bool(response.id.with("hover"), response.hovered());
