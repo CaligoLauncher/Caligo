@@ -319,7 +319,7 @@ impl eframe::App for CaligoApp {
             egui::Frame::none()
                 .fill(self.theme.content_tint())
                 .rounding(egui::Rounding::same(SIDEBAR_ROUNDING))
-                .stroke(egui::Stroke::new(1.0, egui::Color32::from_white_alpha(10)))
+                .stroke(self.theme.card_stroke())
                 .outer_margin(egui::Margin {
                     left: 0.0,
                     right: SIDEBAR_MARGIN,
@@ -549,12 +549,7 @@ fn nav_button(
         ui.painter()
             .circle_filled(rect.center(), 27.0, accent.gamma_multiply(0.10));
         ui.painter()
-            .rect_filled(rect, rounding, accent.gamma_multiply(0.22));
-        let bar = egui::Rect::from_min_size(
-            egui::pos2(rect.min.x - 5.0, rect.min.y + 12.0),
-            egui::vec2(3.0, 22.0),
-        );
-        ui.painter().rect_filled(bar, egui::Rounding::same(2.0), accent);
+            .rect_filled(rect, rounding, accent.gamma_multiply(0.25));
     } else if hover > 0.0 {
         ui.painter().rect_filled(
             rect,
