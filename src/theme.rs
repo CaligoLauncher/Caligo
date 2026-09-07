@@ -134,7 +134,7 @@ impl ThemePreset {
     /// Обводка карточек 1px цветом surface-4: карточка читается границей
     /// чуть светлее собственной заливки, а не тенью или жирной рамкой.
     pub fn card_stroke(&self) -> egui::Stroke {
-        egui::Stroke::new(1.0, self.surface(4))
+        egui::Stroke::new(1.0_f32, self.surface(4))
     }
 
     /// Заливка «стеклянных» панелей поверх размытого фона.
@@ -177,7 +177,8 @@ impl ThemePreset {
 
         v.panel_fill = bg;
         v.window_fill = bg;
-        v.selection.bg_fill = accent.gamma_multiply(0.55);
+        // Выделение — акцентная подсветка (25% альфы), как в дизайн-системах.
+        v.selection.bg_fill = self.accent_highlight();
         v.hyperlink_color = accent;
 
         // Трёхуровневая иерархия текста: обычные виджеты — «телесным»
@@ -195,7 +196,7 @@ impl ThemePreset {
         v.widgets.inactive.bg_fill = self.surface(4).gamma_multiply(0.9);
         v.widgets.hovered.weak_bg_fill = self.surface(5);
         v.widgets.hovered.bg_fill = self.surface(5);
-        v.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, self.surface(5));
+        v.widgets.hovered.bg_stroke = egui::Stroke::new(1.0_f32, self.surface(5));
         v.widgets.active.weak_bg_fill = self.surface(5);
 
         let rounding = egui::Rounding::same(self.rounding);
