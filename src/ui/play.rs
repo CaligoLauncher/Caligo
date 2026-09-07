@@ -8,13 +8,13 @@ use crate::skin::{self, SkinManager};
 use crate::theme::ThemePreset;
 
 const OFFLINE_UUID: &str = "00000000-0000-0000-0000-000000000000";
-/// Ширина правой панели «Группа».
+/// Ширина правой панели «Группа» по умолчанию.
 const PANEL_W: f32 = 232.0;
-/// Высота нижних мини-кнопок.
+/// Высота нижних мини-кнопок по умолчанию.
 const BTN_H: f32 = 48.0;
-/// Ширина мини-кнопки выбора сборки.
+/// Ширина мини-кнопки выбора сборки по умолчанию.
 const VERSION_W: f32 = 216.0;
-/// Ширина мини-кнопки ИГРАТЬ.
+/// Ширина мини-кнопки ИГРАТЬ по умолчанию.
 const PLAY_W: f32 = 176.0;
 
 #[derive(Default)]
@@ -25,7 +25,19 @@ pub struct PlayState {
 
 /// Кромка Liquid Glass: контур по периметру + яркий «блик» по верхней
 /// грани — стекло ловит свет сверху (specular highlight из HIG).
-fn glass_edge(painter: &egui::Painter, rect: egui::Rect, rounding: egui::Rounding) {
+/// Если модулю задан собственный бортик — рисуется только он.
+fn glass_edge_styled(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    rounding: egui::Rounding,
+    custom: Option<egui::Stroke>,
+) {
+    if let Some(stroke) = custom {
+        if stroke.width > 0.0 {
+            painter.rect_stroke(rect, rounding, stroke);
+        }
+        return;
+    }
     painter.rect_stroke(
         rect,
         rounding,
@@ -57,15 +69,26 @@ pub fn show(
     let accent = theme.accent_color();
     let full = ui.available_rect_before_wrap();
 
-    // Правая панель — на всю высоту экрана.
+    // Правая панель — на всю высоту экрана. Ширина настраивается.
+    let panel_w = theme.modules.group_panel.width_or(PANEL_W);
     let panel_rect =
-        egui::Rect::from_min_max(egui::pos2(full.max.x - PANEL_W, full.min.y), full.max);
+        egui::Rect::from_min_max(egui::pos2(full.max.x - panel_w, full.min.y), full.max);
     friends_panel(ui, panel_rect, theme);
 
     // Центральная зона левее панели.
     let center =
         egui::Rect::from_min_max(full.min, egui::pos2(panel_rect.min.x - 18.0, full.max.y));
-    let bottom_y = center.max.y - BTN_H;
+    // Размеры нижних кнопок берутся из настроек модулей; строка кнопок
+    // выравнивается по самой высокой из них.
+    let version_w = theme
+        .modules
+        .version_button
+        .width_or(VERSION_W.min(center.width() * 0.45));
+    let version_h = theme.modules.version_button.height_or(BTN_H);
+    let play_w = theme.modules.play_button.width_or(PLAY_W);
+    let play_h = theme.modules.play_button.height_or(BTN_H);
+    let row_h = version_h.max(play_h);
+    let bottom_y = center.max.y - row_h;
 
     // Центр — игрок (и его группа, когда она появится).
     let doll_rect = egui::Rect::from_min_max(
@@ -74,17 +97,17 @@ pub fn show(
     );
     paperdoll_area(ui, doll_rect, auth, play, skin_mgr, accent);
 
-    // Мини-кнопка слева: выбор версии/сборки.
+    // Мини-кнопка слева: выбор версии/сборки (по центру строки).
     let version_rect = egui::Rect::from_min_size(
-        egui::pos2(center.min.x, bottom_y),
-        egui::vec2(VERSION_W.min(center.width() * 0.45), BTN_H),
+        egui::pos2(center.min.x, bottom_y + (row_h - version_h) / 2.0),
+        egui::vec2(version_w, version_h),
     );
     version_button(ui, version_rect, theme, play, launch);
 
     // Мини-кнопка справа: ИГРАТЬ; статус — между кнопками.
     let play_rect = egui::Rect::from_min_size(
-        egui::pos2(center.max.x - PLAY_W, bottom_y),
-        egui::vec2(PLAY_W, BTN_H),
+        egui::pos2(center.max.x - play_w, bottom_y + (row_h - play_h) / 2.0),
+        egui::vec2(play_w, play_h),
     );
     launch_controls(ui, play_rect, version_rect, theme, auth, play, launch);
 }
@@ -165,12 +188,14 @@ fn paperdoll_area(
 /// (пока заглушки: система друзей появится в будущих версиях).
 fn friends_panel(ui: &mut egui::Ui, rect: egui::Rect, theme: &ThemePreset) {
     let accent = theme.accent_color();
+    let style = &theme.modules.group_panel;
     // Regular-стекло: по HIG крупные элементы (сайдбары, панели)
     // непрозрачнее мелких, чтобы контент поверх оставался читаемым.
-    let rounding = egui::Rounding::same(16.0);
+    // Скругление, заливка и бортик настраиваются.
+    let rounding = egui::Rounding::same(style.rounding_or(16.0));
     ui.painter()
-        .rect_filled(rect, rounding, theme.glass_regular());
-    glass_edge(ui.painter(), rect, rounding);
+        .rect_filled(rect, rounding, style.fill_or(theme.glass_regular()));
+    glass_edge_styled(ui.painter(), rect, rounding, style.border_override());
 
     let inner = rect.shrink(14.0);
     let mut ui = ui.new_child(
@@ -245,10 +270,17 @@ fn version_button(
 ) {
     // Капсула на clear-стекле с затемняющим слоем (35% по HIG) —
     // монохромный контроль: цвет оставлен только главному действию.
-    let rounding = egui::Rounding::same(BTN_H / 2.0);
-    ui.painter().rect_filled(rect, rounding, theme.glass_dim());
-    ui.painter().rect_filled(rect, rounding, theme.card_fill());
-    glass_edge(ui.painter(), rect, rounding);
+    // Скругление, заливка и бортик настраиваются.
+    let style = &theme.modules.version_button;
+    let rounding = egui::Rounding::same(style.rounding_or(rect.height() / 2.0));
+    if let Some(fill) = style.fill {
+        ui.painter()
+            .rect_filled(rect, rounding, crate::theme::color_arr(fill));
+    } else {
+        ui.painter().rect_filled(rect, rounding, theme.glass_dim());
+        ui.painter().rect_filled(rect, rounding, theme.card_fill());
+    }
+    glass_edge_styled(ui.painter(), rect, rounding, style.border_override());
     let inner = rect.shrink2(egui::vec2(16.0, 6.0));
     let mut ui = ui.new_child(
         egui::UiBuilder::new()
@@ -366,6 +398,7 @@ fn play_button_at(
     enabled: bool,
 ) -> egui::Response {
     let accent = theme.accent_color();
+    let style = &theme.modules.play_button;
     let response = ui.interact(rect, ui.id().with("play_btn"), egui::Sense::click());
     let hover = ui
         .ctx()
@@ -376,20 +409,25 @@ fn play_button_at(
     // Капсула (радиус = половине высоты) — предпочтительная форма
     // контролов Tahoe. Акцент нанесён на СТЕКЛО кнопки, а не на текст:
     // так HIG выделяет главное действие — это единственный цветной
-    // контроль на экране.
-    let rounding = egui::Rounding::same(rect.height() / 2.0);
+    // контроль на экране. Скругление, цвет и бортик настраиваются.
+    let base_rounding = style.rounding_or(rect.height() / 2.0);
+    let rounding = egui::Rounding::same(base_rounding);
 
     let painter = ui.painter();
     if enabled {
         painter.rect_filled(
             rect.expand(9.0 + 3.0 * hover),
-            egui::Rounding::same(rect.height() / 2.0 + 9.0),
+            egui::Rounding::same(base_rounding + 9.0),
             accent.gamma_multiply(0.10 * pulse + 0.14 * hover),
         );
     }
     // Полный, непрозрачный акцент: главное действие не должно тонуть
     // в тёмном фоне.
-    let fill = if enabled { accent } else { theme.glass_clear() };
+    let fill = if enabled {
+        style.fill_or(accent)
+    } else {
+        theme.glass_clear()
+    };
     painter.rect_filled(rect, rounding, fill);
     if enabled && hover > 0.0 {
         painter.rect_filled(
@@ -404,6 +442,12 @@ fn play_button_at(
         egui::pos2(rect.max.x, rect.min.y + rect.height() * 0.5),
     );
     painter.rect_filled(sheen, rounding, egui::Color32::from_white_alpha(24));
+    // Собственный бортик кнопки (по умолчанию его нет).
+    if let Some(stroke) = style.border_override() {
+        if stroke.width > 0.0 {
+            painter.rect_stroke(rect, rounding, stroke);
+        }
+    }
     let text_color = if enabled {
         egui::Color32::WHITE
     } else {
