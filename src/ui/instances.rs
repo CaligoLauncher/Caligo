@@ -54,7 +54,7 @@ fn create_card(ui: &mut egui::Ui, size: egui::Vec2, theme: &ThemePreset) {
     p.rect_stroke(
         rect,
         rounding,
-        egui::Stroke::new(1.0, accent.gamma_multiply(0.45 + 0.3 * hover)),
+        egui::Stroke::new(1.0_f32, accent.gamma_multiply(0.45 + 0.3 * hover)),
     );
     let c = egui::pos2(rect.center().x, rect.center().y - 14.0);
     p.circle_filled(c, 19.0, accent.gamma_multiply(0.18 + 0.10 * hover));
@@ -89,7 +89,7 @@ fn ghost_card(ui: &mut egui::Ui, size: egui::Vec2, theme: &ThemePreset, i: usize
     p.rect_stroke(
         rect,
         rounding,
-        egui::Stroke::new(1.0, theme.surface(4).gamma_multiply(0.7 * fade)),
+        egui::Stroke::new(1.0_f32, theme.surface(4).gamma_multiply(0.7 * fade)),
     );
     let icon = egui::Rect::from_min_size(
         rect.min + egui::vec2(16.0, 16.0),
