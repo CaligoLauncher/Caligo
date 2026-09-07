@@ -94,15 +94,38 @@ impl Background {
         } else {
             // Фолбэк без картинки: мягкий вертикальный градиент из цвета
             // темы с едва заметным акцентным подтоном внизу.
-            let top = theme.background_color();
-            let deep = darken(top, 0.45);
+            let base = theme.background_color();
             let accent = theme.accent_color();
-            let bottom = egui::Color32::from_rgb(
-                deep.r().saturating_add(accent.r() / 18),
-                deep.g().saturating_add(accent.g() / 18),
-                deep.b().saturating_add(accent.b() / 18),
+            // Верх — глубокий сине-чёрный с холодным подъёмом, низ темнее:
+            // без картинки фон должен быть спроектированным задником,
+            // а не чёрной пустотой, в которой тонут стеклянные панели.
+            let top = egui::Color32::from_rgb(
+                base.r().saturating_add(8),
+                base.g().saturating_add(11),
+                base.b().saturating_add(20),
             );
+            let bottom = darken(base, 0.55);
             vgradient(&painter, screen, top, bottom);
+            // Мягкие акцентные свечения: большое — за персонажем,
+            // тихое — в правом нижнем углу. Панелям есть на чём стоять.
+            glow(
+                &painter,
+                egui::pos2(
+                    screen.min.x + screen.width() * 0.40,
+                    screen.min.y + screen.height() * 0.32,
+                ),
+                screen.height() * 0.60,
+                accent,
+            );
+            glow(
+                &painter,
+                egui::pos2(
+                    screen.min.x + screen.width() * 0.88,
+                    screen.min.y + screen.height() * 1.05,
+                ),
+                screen.height() * 0.45,
+                accent,
+            );
         }
         vignette(&painter, screen);
     }
@@ -218,4 +241,18 @@ fn darken(c: egui::Color32, f: f32) -> egui::Color32 {
         (c.g() as f32 * f) as u8,
         (c.b() as f32 * f) as u8,
     )
+}
+
+/// Большое мягкое пятно света: концентрические круги с крошечной альфой
+/// складываются в плавное свечение без градиентного меша.
+fn glow(painter: &egui::Painter, center: egui::Pos2, radius: f32, color: egui::Color32) {
+    let steps = 18;
+    for i in 0..steps {
+        let r = radius * (1.0 - i as f32 / steps as f32);
+        painter.circle_filled(
+            center,
+            r,
+            egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 2),
+        );
+    }
 }
