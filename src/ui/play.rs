@@ -23,18 +23,21 @@ pub struct PlayState {
     pub offline_name: String,
 }
 
-/// Плавное смешение двух цветов.
-fn mix(a: egui::Color32, b: egui::Color32, t: f32) -> egui::Color32 {
-    let l = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t.clamp(0.0, 1.0)) as u8;
-    egui::Color32::from_rgb(l(a.r(), b.r()), l(a.g(), b.g()), l(a.b(), b.b()))
-}
-
-/// Тонкая светлая кромка «стекла» для панелей.
+/// Кромка Liquid Glass: контур по периметру + яркий «блик» по верхней
+/// грани — стекло ловит свет сверху (specular highlight из HIG).
 fn glass_edge(painter: &egui::Painter, rect: egui::Rect, rounding: egui::Rounding) {
     painter.rect_stroke(
         rect,
         rounding,
-        egui::Stroke::new(1.0_f32, egui::Color32::from_white_alpha(12)),
+        egui::Stroke::new(1.0_f32, egui::Color32::from_white_alpha(14)),
+    );
+    let r = rounding.nw.max(rounding.ne);
+    painter.line_segment(
+        [
+            egui::pos2(rect.min.x + r, rect.min.y + 0.5),
+            egui::pos2(rect.max.x - r, rect.min.y + 0.5),
+        ],
+        egui::Stroke::new(1.0_f32, egui::Color32::from_white_alpha(36)),
     );
 }
 
@@ -162,8 +165,11 @@ fn paperdoll_area(
 /// (пока заглушки: система друзей появится в будущих версиях).
 fn friends_panel(ui: &mut egui::Ui, rect: egui::Rect, theme: &ThemePreset) {
     let accent = theme.accent_color();
-    let rounding = egui::Rounding::same(theme.rounding * 1.4);
-    ui.painter().rect_filled(rect, rounding, theme.glass_fill());
+    // Regular-стекло: по HIG крупные элементы (сайдбары, панели)
+    // непрозрачнее мелких, чтобы контент поверх оставался читаемым.
+    let rounding = egui::Rounding::same(16.0);
+    ui.painter()
+        .rect_filled(rect, rounding, theme.glass_regular());
     glass_edge(ui.painter(), rect, rounding);
 
     let inner = rect.shrink(14.0);
@@ -177,11 +183,12 @@ fn friends_panel(ui: &mut egui::Ui, rect: egui::Rect, theme: &ThemePreset) {
         let (dot, _) = ui.allocate_exact_size(egui::vec2(8.0, 8.0), egui::Sense::hover());
         ui.painter()
             .circle_filled(dot.center(), 3.0, accent.gamma_multiply(0.9));
-        // Разрежённые капс-буквы — типографика ярлыков секций
-        // (как у Modrinth/Lunar): тихий, но собранный заголовок.
+        // Tahoe отказался от КАПС-заголовков секций: обычная
+        // капитализация, тихий subheadline (11 pt, полужирный).
         ui.label(
-            egui::RichText::new("Г Р У П П А")
+            egui::RichText::new("Группа")
                 .size(11.0)
+                .strong()
                 .color(theme.text_tertiary()),
         );
     });
@@ -202,7 +209,8 @@ fn friends_panel(ui: &mut egui::Ui, rect: egui::Rect, theme: &ThemePreset) {
 fn ghost_friend_row(ui: &mut egui::Ui, i: usize) {
     let w = ui.available_width();
     let (rect, _) = ui.allocate_exact_size(egui::vec2(w, 38.0), egui::Sense::hover());
-    let rounding = egui::Rounding::same(10.0);
+    // Капсульный слот: радиус = половине высоты (форма контролов Tahoe).
+    let rounding = egui::Rounding::same(19.0);
     let alpha = 5u8.saturating_sub(i as u8);
     ui.painter()
         .rect_filled(rect, rounding, egui::Color32::from_white_alpha(alpha.max(2)));
@@ -227,10 +235,13 @@ fn version_button(
     play: &mut PlayState,
     launch: &LaunchManager,
 ) {
-    let rounding = egui::Rounding::same(theme.rounding * 1.2);
-    ui.painter().rect_filled(rect, rounding, theme.glass_fill());
+    // Капсула на clear-стекле с затемняющим слоем (35% по HIG) —
+    // монохромный контроль: цвет оставлен только главному действию.
+    let rounding = egui::Rounding::same(BTN_H / 2.0);
+    ui.painter().rect_filled(rect, rounding, theme.glass_dim());
+    ui.painter().rect_filled(rect, rounding, theme.glass_clear());
     glass_edge(ui.painter(), rect, rounding);
-    let inner = rect.shrink2(egui::vec2(12.0, 6.0));
+    let inner = rect.shrink2(egui::vec2(16.0, 6.0));
     let mut ui = ui.new_child(
         egui::UiBuilder::new()
             .max_rect(inner)
@@ -354,32 +365,39 @@ fn play_button_at(
     let t = ui.input(|i| i.time) as f32;
     // Медленное «дыхание» свечения; перерисовка уже идёт из-за частиц.
     let pulse = ((t * 1.6).sin() * 0.5 + 0.5) * 0.5 + 0.5;
-    let rounding = egui::Rounding::same(theme.rounding * 1.2);
+    // Капсула (радиус = половине высоты) — предпочтительная форма
+    // контролов Tahoe. Акцент нанесён на СТЕКЛО кнопки, а не на текст:
+    // так HIG выделяет главное действие — это единственный цветной
+    // контроль на экране.
+    let rounding = egui::Rounding::same(rect.height() / 2.0);
 
     let painter = ui.painter();
     if enabled {
         painter.rect_filled(
             rect.expand(8.0 + 3.0 * hover),
-            egui::Rounding::same(theme.rounding * 1.2 + 8.0),
-            accent.gamma_multiply(0.06 * pulse + 0.10 * hover),
-        );
-        painter.rect_filled(
-            rect.expand(3.0 + 2.0 * hover),
-            egui::Rounding::same(theme.rounding * 1.2 + 3.0),
-            accent.gamma_multiply(0.12 * pulse + 0.12 * hover),
+            egui::Rounding::same(rect.height() / 2.0 + 8.0),
+            accent.gamma_multiply(0.05 * pulse + 0.10 * hover),
         );
     }
     let fill = if enabled {
-        mix(accent, egui::Color32::WHITE, hover * 0.15)
+        egui::Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 216)
     } else {
-        egui::Color32::from_rgb(58, 61, 68)
+        theme.glass_clear()
     };
     painter.rect_filled(rect, rounding, fill);
+    if enabled && hover > 0.0 {
+        painter.rect_filled(
+            rect,
+            rounding,
+            egui::Color32::from_white_alpha((22.0 * hover) as u8),
+        );
+    }
+    // Блик по верхней половине: тонированное стекло тоже ловит свет.
     let sheen = egui::Rect::from_min_max(
         rect.min,
-        egui::pos2(rect.max.x, rect.min.y + rect.height() * 0.45),
+        egui::pos2(rect.max.x, rect.min.y + rect.height() * 0.5),
     );
-    painter.rect_filled(sheen, rounding, egui::Color32::from_white_alpha(10));
+    painter.rect_filled(sheen, rounding, egui::Color32::from_white_alpha(12));
     let text_color = if enabled {
         egui::Color32::WHITE
     } else {
@@ -388,8 +406,8 @@ fn play_button_at(
     painter.text(
         rect.center(),
         egui::Align2::CENTER_CENTER,
-        "ИГРАТЬ",
-        egui::FontId::proportional(20.0),
+        "Играть",
+        egui::FontId::proportional(16.0),
         text_color,
     );
     if enabled {
