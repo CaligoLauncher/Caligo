@@ -124,6 +124,7 @@ pub fn show(ui:&mut egui::Ui,theme:&ThemePreset,state:&mut InstancesState,play:&
                         ui.add_space(8.0);
                         let text_w=(ui.available_width()-if wide{244.0}else{0.0}).max(80.0);
                         ui.allocate_ui_with_layout(vec2(text_w,42.0),egui::Layout::top_down(egui::Align::Min),|ui|{
+                            ui.set_min_width(text_w);
                             ui.add(egui::Label::new(egui::RichText::new(&inst.name).size(15.0).strong().color(theme.text_primary())).truncate());
                             ui.label(egui::RichText::new(format!("Minecraft {} · Vanilla{}",inst.version,if selected{" · Выбрана"}else{""})).size(12.0).color(theme.text_tertiary()));
                         });

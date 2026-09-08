@@ -18,7 +18,9 @@ fn install_fonts(ctx:&egui::Context){
     fonts.font_data.insert("manrope".into(),egui::FontData::from_static(include_bytes!("../assets/fonts/Manrope.ttf")));
     fonts.families.get_mut(&egui::FontFamily::Proportional).unwrap().insert(0,"manrope".into());
     fonts.font_data.insert("manrope-semibold".into(),egui::FontData::from_static(include_bytes!("../assets/fonts/Manrope-SemiBold.ttf")));
-    fonts.families.insert(egui::FontFamily::Name("heading".into()),vec!["manrope-semibold".into(),"manrope".into()]);
+    let mut headings=fonts.families[&egui::FontFamily::Proportional].clone();
+    headings.insert(0,"manrope-semibold".into());
+    fonts.families.insert(egui::FontFamily::Name("heading".into()),headings);
     ctx.set_fonts(fonts);
 }
 

@@ -46,14 +46,17 @@ pub fn show(ui:&mut egui::Ui,theme:&ThemePreset,auth:&AuthManager,play:&mut Play
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new("Библиотека").size(18.0).strong().color(theme.text_primary()));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui| {
-                if c::button(ui,"Все сборки",vec2(118.0,36.0),theme,false).clicked(){action=Some(HomeAction::Library);}
+                let empty=instances.items().is_empty();
+                if c::button(ui,if empty{"Создать сборку"}else{"Все сборки"},vec2(156.0,40.0),theme,false).clicked(){
+                    action=Some(if empty{HomeAction::Create}else{HomeAction::Library});
+                }
             });
         });
         ui.add_space(8.0);
         let items=instances.items();
         if items.is_empty() {
             c::empty(ui,"Начни со своей сборки","Сохрани имя и версию Minecraft, чтобы не выбирать их каждый раз.",theme);
-            if c::button(ui,"Создать сборку",vec2(168.0,40.0),theme,false).clicked(){action=Some(HomeAction::Create);}
+
         } else {
             for (i,inst) in items.iter().take(3).enumerate() {
                 if super::instances::compact_row(ui,theme,inst,play.selected_instance.as_deref()==Some(inst.name.as_str()),i).clicked() {
