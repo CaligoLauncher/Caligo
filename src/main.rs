@@ -1,4 +1,6 @@
 mod app;
+mod composition;
+mod editor;
 mod auth;
 mod background;
 mod effects;

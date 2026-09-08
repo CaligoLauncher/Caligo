@@ -125,3 +125,96 @@ fn sidebar_navigation_works_at_both_window_sizes() {
         assert_eq!(app.tab,Tab::Home);
     }
 }
+
+use crate::composition::{Action,Edge,Position};
+
+fn editor_frame(ctx:&egui::Context,app:&mut CaligoApp,events:Vec<egui::Event>){
+    let _=ctx.run(egui::RawInput{screen_rect:Some(egui::Rect::from_min_size(egui::Pos2::ZERO,egui::vec2(1000.0,620.0))),events,..Default::default()},|ctx|app.render(ctx));
+}
+fn pointer(ctx:&egui::Context,app:&mut CaligoApp,p:egui::Pos2,pressed:bool){
+    editor_frame(ctx,app,vec![egui::Event::PointerMoved(p),egui::Event::PointerButton{pos:p,button:egui::PointerButton::Primary,pressed,modifiers:Default::default()}]);
+}
+fn click(ctx:&egui::Context,app:&mut CaligoApp,p:egui::Pos2){
+    pointer(ctx,app,p,true);pointer(ctx,app,p,false);
+}
+fn drag_to(ctx:&egui::Context,app:&mut CaligoApp,start:egui::Pos2,end:egui::Pos2){
+    pointer(ctx,app,start,true);
+    editor_frame(ctx,app,vec![egui::Event::PointerMoved(start+egui::vec2(8.0,8.0))]);
+    editor_frame(ctx,app,vec![egui::Event::PointerMoved(end)]);
+    pointer(ctx,app,end,false);
+    editor_frame(ctx,app,vec![]);
+}
+#[test]
+fn edit_mode_real_pointer_move_undo_cancel_and_navigation(){
+    let ctx=egui::Context::default();let mut app=CaligoApp::visual_fixture(&ctx,Tab::Home,false);
+    let original=app.editor.document.clone();
+    app.editor.begin();
+    for _ in 0..4{editor_frame(&ctx,&mut app,vec![]);}
+    let add=app.editor.controls.iter().find(|(s,_)|*s=="add_panel").unwrap().1.center();
+    click(&ctx,&mut app,add);editor_frame(&ctx,&mut app,vec![]);
+    click(&ctx,&mut app,egui::pos2(600.0,130.0));
+    for _ in 0..3{editor_frame(&ctx,&mut app,vec![]);}
+    assert_eq!(app.editor.document.panels.len(),2);
+    let new_id=app.editor.document.panels[1].id;
+    assert_eq!(app.editor.document.panels[1].edge,Edge::Top);
+    let start=app.editor.rects.iter().find(|(id,_)|*id==3).unwrap().1.center();
+    let target=app.editor.panel_rects.iter().find(|(id,_)|*id==new_id).unwrap().1.center();
+    drag_to(&ctx,&mut app,start,target);
+    assert_eq!(app.editor.document.widgets.iter().find(|w|w.id==3).unwrap().panel,Some(new_id));
+    assert_eq!(app.tab,Tab::Home,"edit click must not navigate");
+    let undo=app.editor.controls.iter().find(|(s,_)|*s=="undo").unwrap().1.center();
+    click(&ctx,&mut app,undo);
+    assert_eq!(app.editor.document.widgets.iter().find(|w|w.id==3).unwrap().panel,Some(1));
+    app.editor.cancel();assert_eq!(app.editor.document,original);
+    for _ in 0..3{editor_frame(&ctx,&mut app,vec![]);}
+    let p=app.editor.rects.iter().find(|(id,_)|*id==3).unwrap().1.center();
+    click(&ctx,&mut app,p);assert_eq!(app.tab,Tab::Instances);
+}
+
+#[test]
+fn free_position_and_editor_selection_do_not_launch_game(){
+    let ctx=egui::Context::default();let mut app=CaligoApp::visual_fixture(&ctx,Tab::Home,false);
+    app.editor.begin();
+    for _ in 0..4{editor_frame(&ctx,&mut app,vec![]);}
+    let start=app.editor.rects.iter().find(|(id,_)|*id==3).unwrap().1.center();
+    drag_to(&ctx,&mut app,start,egui::pos2(760.0,470.0));
+    assert_eq!(app.editor.document.widgets.iter().find(|w|w.id==3).unwrap().panel,None);
+    click(&ctx,&mut app,egui::pos2(860.0,440.0));
+    assert!(matches!(app.launch.state(),crate::launch::LaunchState::Idle));
+    assert_eq!(app.tab,Tab::Home);
+}
+
+#[test]
+fn visual_review_editor_screens(){
+    for (name,w,h,editing,custom) in [
+        ("editor_default_1000",1000,620,true,false),
+        ("editor_local_1000",1000,620,true,true),
+        ("composition_top_1000",1000,620,false,true),
+        ("composition_top_720",720,440,false,true),
+    ]{
+        let ctx=egui::Context::default();ctx.set_pixels_per_point(1.0);
+        let mut app=CaligoApp::visual_fixture(&ctx,Tab::Home,false);
+        if custom{
+            let p=app.editor.document.add_panel(Edge::Top,Position::default());
+            app.editor.document.move_widget(3,Some(p),None,Position::default());
+            let w=app.editor.document.widgets.iter_mut().find(|w|w.id==3).unwrap();
+            w.style.rounding=Some(20.0);w.style.fill=Some([45,81,126,255]);
+        }
+        if editing{app.editor.begin();app.editor.test_select(3);}
+        let mut textures=HashMap::new();let mut last=None;
+        for i in 0..5 {
+            let out=ctx.run(egui::RawInput{screen_rect:Some(egui::Rect::from_min_size(egui::Pos2::ZERO,egui::vec2(w as f32,h as f32))),time:Some(i as f64/10.0),..Default::default()},|ctx|app.render(ctx));
+            apply_delta(&mut textures,&out.textures_delta);last=Some(out);
+        }
+        let png=raster(&ctx,last.unwrap(),&textures,w,h);
+        let mut buf=Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgba8(png).write_to(&mut buf,image::ImageFormat::Png).unwrap();
+        if std::env::var("CI").is_ok(){
+            let data=base64::engine::general_purpose::STANDARD.encode(buf.into_inner());
+            let mut stdout=std::io::stdout().lock();
+            writeln!(stdout,"CALIGO_VISUAL_BEGIN {name}").unwrap();
+            for chunk in data.as_bytes().chunks(6000){writeln!(stdout,"CALIGO_VISUAL_DATA {}",std::str::from_utf8(chunk).unwrap()).unwrap();}
+            writeln!(stdout,"CALIGO_VISUAL_END {name}").unwrap();
+        }
+    }
+}

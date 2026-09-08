@@ -37,16 +37,19 @@ pub struct CaligoApp{
     mist:Mist,
     profile_open:bool,
     visual_test:bool,
+    pub editor:crate::editor::Editor,
 }
 
 impl CaligoApp{
     pub fn new(cc:&eframe::CreationContext<'_>)->Self{
-        Self::with_context(&cc.egui_ctx)
+        let mut app=Self::with_context(&cc.egui_ctx);
+        app.editor=crate::editor::Editor::load();
+        app
     }
     fn with_context(ctx:&egui::Context)->Self{
         install_fonts(ctx);
         let theme=ThemePreset::default();theme.apply(ctx);
-        Self{tab:Tab::Home,theme,settings:Default::default(),auth:Default::default(),launch:Default::default(),play:Default::default(),instances:Default::default(),skin:Default::default(),background:Background::load(ctx),mist:Mist::new(),profile_open:false,visual_test:false}
+        Self{tab:Tab::Home,theme,settings:Default::default(),auth:Default::default(),launch:Default::default(),play:Default::default(),instances:Default::default(),skin:Default::default(),background:Background::load(ctx),mist:Mist::new(),profile_open:false,visual_test:false,editor:Default::default()}
     }
     fn skin_key(&self)->Option<String>{
         match self.auth.state(){
@@ -55,34 +58,61 @@ impl CaligoApp{
         }
     }
     pub fn render(&mut self,ctx:&egui::Context){
-        self.background.paint(ctx,&self.theme,&[]);
+        if ctx.input_mut(|i|i.consume_key(egui::Modifiers::CTRL|egui::Modifiers::SHIFT,egui::Key::E)){
+            self.editor.begin();self.profile_open=false;
+        }
+        if let Some(c)=self.editor.document.background {
+            ctx.layer_painter(egui::LayerId::background()).rect_filled(ctx.screen_rect(),0.0,egui::Color32::from_rgba_unmultiplied(c[0],c[1],c[2],c[3]));
+        }else{self.background.paint(ctx,&self.theme,&[]);}
         if !self.visual_test{self.skin.ensure(ctx,self.skin_key());}
         let small=ctx.screen_rect().width()<880.0;
-        let sb_w=self.theme.modules.sidebar.width_or(if small{68.0}else{184.0}).clamp(60.0,ctx.screen_rect().width()*0.27);
-        self.titlebar(ctx,sb_w);
-        self.sidebar(ctx,sb_w);
+        self.titlebar(ctx,if small{68.0}else{184.0});
+        self.editor.toolbar(ctx,&self.theme);
+        if self.editor.active(){self.profile_open=false;}
+        let layout=self.editor.layout(ctx.available_rect());
+        let editing=self.editor.active();
         let pad=if small{18.0}else{28.0};
         let tc=&self.theme.modules.tab_card;
         let mut frame=egui::Frame::none().inner_margin(egui::Margin::same(pad));
-        if tc.is_custom(){
-            frame=frame.fill(tc.fill_or(egui::Color32::TRANSPARENT)).rounding(tc.rounding_or(0.0)).stroke(tc.border_or(Stroke::NONE));
-        }
-        egui::CentralPanel::default().frame(frame).show(ctx,|ui|{
-            match self.tab{
-                Tab::Home=>{
-                    if let Some(action)=ui::play::show(ui,&self.theme,&self.auth,&mut self.play,&self.launch,&self.skin,&mut self.instances){
-                        match action{
-                            ui::play::HomeAction::Library=>self.tab=Tab::Instances,
-                            ui::play::HomeAction::Create=>{self.instances.creating=true;self.tab=Tab::Instances;}
-                            ui::play::HomeAction::Profile=>self.profile_open=true,
+        if tc.is_custom(){frame=frame.fill(tc.fill_or(egui::Color32::TRANSPARENT)).rounding(tc.rounding_or(0.0)).stroke(tc.border_or(Stroke::NONE));}
+        egui::CentralPanel::default().frame(egui::Frame::none()).show(ctx,|ui|{
+            let mut page=ui.new_child(egui::UiBuilder::new().id_salt("composition_page").max_rect(layout.content));
+            page.set_clip_rect(layout.content);
+            // Defense in depth: the functional page never receives edit gestures.
+            page.add_enabled_ui(!editing,|ui|{
+                frame.show(ui,|ui|{
+                    ui.set_min_size((layout.content.size()-vec2(pad*2.0,pad*2.0)).max(vec2(1.0,1.0)));
+                    match self.tab{
+                        Tab::Home=>{
+                            if let Some(action)=ui::play::show(ui,&self.theme,&self.auth,&mut self.play,&self.launch,&self.skin,&mut self.instances){
+                                if !editing{match action{
+                                    ui::play::HomeAction::Library=>self.tab=Tab::Instances,
+                                    ui::play::HomeAction::Create=>{self.instances.creating=true;self.tab=Tab::Instances;}
+                                    ui::play::HomeAction::Profile=>self.profile_open=true,
+                                }}
+                            }
                         }
+                        Tab::Instances=>{if ui::instances::show(ui,&self.theme,&mut self.instances,&mut self.play,&self.launch)&&!editing{self.tab=Tab::Home;}}
+                        Tab::Settings=>ui::settings::show(ui,&mut self.settings,&mut self.theme),
                     }
-                }
-                Tab::Instances=>{if ui::instances::show(ui,&self.theme,&mut self.instances,&mut self.play,&self.launch){self.tab=Tab::Home;}}
-                Tab::Settings=>ui::settings::show(ui,&mut self.settings,&mut self.theme),
-            }
+                });
+            });
         });
-        if self.theme.modules.mist&&!self.visual_test{self.mist.paint(ctx,self.theme.accent_color());}
+        let active=match self.tab{Tab::Home=>crate::composition::Action::Home,Tab::Instances=>crate::composition::Action::Library,Tab::Settings=>crate::composition::Action::Settings};
+        if let Some(action)=self.editor.shell(ctx,&layout,&self.theme,active){
+            self.dispatch_shell_action(action);
+        }
+        if self.theme.modules.mist&&!self.visual_test&&!editing{self.mist.paint(ctx,self.theme.accent_color());}
+        self.editor.overlay(ctx,&layout,&self.theme);
+    }
+    fn dispatch_shell_action(&mut self,action:crate::composition::Action){
+        if self.editor.active(){return}
+        match action{
+            crate::composition::Action::Home=>self.tab=Tab::Home,
+            crate::composition::Action::Library=>self.tab=Tab::Instances,
+            crate::composition::Action::Settings=>self.tab=Tab::Settings,
+            crate::composition::Action::Profile=>self.profile_open=true,
+        }
     }
     fn titlebar(&mut self,ctx:&egui::Context,sb_w:f32){
         let tb=self.theme.modules.titlebar.clone();
@@ -102,7 +132,7 @@ impl CaligoApp{
                 ui.painter().circle_stroke(mark.center(),7.5,Stroke::new(2.0_f32,self.theme.accent_color()));
                 ui.painter().circle_filled(mark.center()+vec2(4.0,-3.0),6.5,self.theme.surface(1));
                 ui.add_space(4.0);
-                if ui.add(egui::Label::new(egui::RichText::new("Caligo").size(17.0).strong().color(self.theme.text_primary())).sense(egui::Sense::click())).clicked(){self.tab=Tab::Home;}
+                if ui.add(egui::Label::new(egui::RichText::new("Caligo").size(17.0).strong().color(self.theme.text_primary())).sense(egui::Sense::click())).clicked()&&!self.editor.active(){self.tab=Tab::Home;}
                 ui.add_space((sb_w-133.0).max(0.0));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{
                     ui.spacing_mut().item_spacing.x=0.0;
@@ -112,41 +142,13 @@ impl CaligoApp{
                     ui.add_space(18.0);
                     let chip=profile_chip(ui,&self.theme,&self.auth,&self.play,&self.skin);
                     anchor=Some(chip.rect);
-                    if chip.clicked(){self.profile_open=!self.profile_open;}
+                    if chip.clicked()&&!self.editor.active(){self.profile_open=!self.profile_open;}
+                    ui.add_space(10.0);
+                    if ui.button("Редактор").on_hover_text("Редактировать интерфейс · Ctrl+Shift+E").clicked(){self.editor.begin();self.profile_open=false;}
                 });
             });
         });
-        if self.profile_open {if let Some(r)=anchor{self.profile_popup(ctx,r);}}
-    }
-    fn sidebar(&mut self,ctx:&egui::Context,width:f32){
-        let sb=self.theme.modules.sidebar.clone();
-        egui::SidePanel::left("navigation").resizable(false).exact_width(width).show_separator_line(false).frame(egui::Frame::none()).show(ctx,|ui|{
-            let r=ui.max_rect();
-            ui.painter().rect_filled(r,sb.rounding_or(0.0),sb.fill_or(self.theme.surface(1)));
-            if let Some(s)=sb.border_override(){ui.painter().rect_stroke(r,sb.rounding_or(0.0),s);}
-            let inner=r.shrink2(vec2(12.0,12.0));
-            let mut child=ui.new_child(egui::UiBuilder::new().id_salt("sidebar_top").max_rect(inner));
-            for (tab,icon,name) in [(Tab::Home,NavIcon::Home,"Главная"),(Tab::Instances,NavIcon::Cube,"Сборки")]{
-                if self.navigation_row(&mut child,tab,icon,name,width).clicked(){self.tab=tab;}
-                child.add_space(6.0);
-            }
-            let bottom=Rect::from_min_size(pos2(inner.left(),inner.bottom()-68.0),vec2(inner.width(),48.0));
-            let mut bottom_ui=ui.new_child(egui::UiBuilder::new().id_salt("sidebar_bottom").max_rect(bottom));
-            if self.navigation_row(&mut bottom_ui,Tab::Settings,NavIcon::Sliders,"Настройки",width).clicked(){self.tab=Tab::Settings;}
-        });
-    }
-    fn navigation_row(&self,ui:&mut egui::Ui,tab:Tab,icon:NavIcon,name:&str,width:f32)->egui::Response{
-        let (r,response)=ui.allocate_exact_size(vec2(ui.available_width(),44.0),egui::Sense::click());
-        let active=self.tab==tab;
-        if active||response.hovered(){ui.painter().rect_filled(r,8.0,if active{self.theme.surface(3)}else{self.theme.surface(2)});}
-        let color=if active{self.theme.text_primary()}else{self.theme.text_tertiary()};
-        let center=pos2(if width<130.0{r.center().x}else{r.left()+20.0},r.center().y);
-        paint_nav_icon(ui.painter(),center,icon,color,0.0);
-        if width>=130.0{
-            c::label(ui.painter(),Rect::from_min_size(pos2(r.left()+40.0,r.top()),vec2(r.width()-46.0,r.height())),name,13.0,color);
-        }
-        if active{ui.painter().rect_filled(Rect::from_center_size(pos2(r.left()-5.0,r.center().y),vec2(2.0,16.0)),1.0,self.theme.accent_color());}
-        response.on_hover_text(name).on_hover_cursor(egui::CursorIcon::PointingHand)
+        if self.profile_open&&!self.editor.active() {if let Some(r)=anchor{self.profile_popup(ctx,r);}}
     }
     fn profile_popup(&mut self,ctx:&egui::Context,anchor:Rect){
         let pos=pos2((anchor.right()-PROFILE_W).max(8.0),anchor.bottom()+8.0);
@@ -393,14 +395,14 @@ fn window_button(ui: &mut egui::Ui, glyph: WinGlyph, tooltip: &str, bar_h: f32) 
 
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum NavIcon {
+pub(crate) enum NavIcon {
     Home,
     Cube,
     Sliders,
 }
 
 /// Рисует иконку навигации штрихами. При наведении слегка растёт.
-fn paint_nav_icon(
+pub(crate) fn paint_nav_icon(
     painter: &egui::Painter,
     center: egui::Pos2,
     icon: NavIcon,
