@@ -106,10 +106,12 @@ pub fn list(ui:&mut egui::Ui,theme:&ThemePreset,state:&mut InstancesState,play:&
     go_home
 }
 pub fn dialogs(ctx:&egui::Context,theme:&ThemePreset,state:&mut InstancesState,play:&mut PlayState,launch:&LaunchManager){
+    if ctx.input(|i|i.key_pressed(egui::Key::Escape)){state.creating=false;state.delete_name=None;}
     if state.creating {
         egui::Window::new("Новая сборка").id(egui::Id::new("create_instance")).order(egui::Order::Foreground)
-            .collapsible(false).resizable(false).default_width(400.0)
-            .constrain_to(ctx.screen_rect().shrink(12.0)).max_height((ctx.screen_rect().height()-100.0).max(200.0)).vscroll(true).show(ctx,|ui|{
+            .collapsible(false).resizable(false).title_bar(false).default_width(400.0)
+            .default_pos(egui::pos2((ctx.screen_rect().width()-416.0).max(24.0)/2.0,64.0))
+            .constrain_to(egui::Rect::from_min_max(egui::pos2(12.0,56.0),ctx.screen_rect().max-egui::vec2(12.0,12.0))).max_height((ctx.screen_rect().height()-100.0).max(200.0)).vscroll(true).show(ctx,|ui|{
                 create_form(ui,theme,state,play,launch);
                 if let Some(err)=&state.error{ui.colored_label(egui::Color32::from_rgb(240,145,145),err);}
                 ui.label(egui::RichText::new("Сохраняются имя и версия. Игровая папка пока общая; моды и загрузчики не добавляются.").size(12.0).color(theme.text_tertiary()));
@@ -136,7 +138,7 @@ pub fn dialogs(ctx:&egui::Context,theme:&ThemePreset,state:&mut InstancesState,p
     }
 }
 fn create_form(ui:&mut egui::Ui,theme:&ThemePreset,state:&mut InstancesState,play:&mut PlayState,launch:&LaunchManager){
-    egui::Frame::none().fill(theme.surface(3)).stroke(Stroke::new(1.0_f32,theme.surface(4))).rounding(12.0).inner_margin(20.0).show(ui,|ui|{
+    egui::Frame::none().inner_margin(12.0).show(ui,|ui|{
         ui.label(egui::RichText::new("Новая сборка").size(18.0).strong());
         ui.add_space(12.0);ui.label("Название");
         ui.add_sized(vec2(ui.available_width(),40.0),egui::TextEdit::singleline(&mut state.new_name).hint_text("Например, Выживание").char_limit(80));

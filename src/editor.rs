@@ -376,6 +376,7 @@ pub fn shell(&mut self,ctx:&egui::Context,layout:&Layout,theme:&ThemePreset,acti
                 if w.panel.and_then(|id|self.document.panels.iter().find(|p|p.id==id)).is_some_and(|p|p.vertical){
                     ui.checkbox(&mut w.bottom,"Прижать вниз");
                 }
+                egui::CollapsingHeader::new("Размещение и страницы").id_salt(("placement",id)).show(ui,|ui|{
                 if w.panel.is_none(){
                     ui.checkbox(&mut w.flow,"В потоке страницы");
                     if w.flow {ui.add(egui::Slider::new(&mut w.span,1..=12).text("Доля строки"));}else{anchor_ui(ui,&mut w.position);}
@@ -385,19 +386,21 @@ pub fn shell(&mut self,ctx:&egui::Context,layout:&Layout,theme:&ThemePreset,acti
                         ui.selectable_value(&mut w.page,page,page.map(|p|p.label()).unwrap_or("Все страницы"));
                     }
                 });
+                });
             }
             if let Some(p)=self.document.panels.iter_mut().find(|p|p.id==id){
                 ui.checkbox(&mut p.vertical,"Вертикальное расположение");
                 ui.label("Перетяни панель к краю или на свободное место.");
                 if p.edge==Edge::Float{anchor_ui(ui,&mut p.position);}
             }
+            let is_launch=self.document.widgets.iter().any(|w|w.id==id&&w.action==Action::Launch);
             let style=if is_panel{self.document.panels.iter_mut().find(|p|p.id==id).map(|p|&mut p.style)}else{self.document.widgets.iter_mut().find(|p|p.id==id).map(|p|&mut p.style)};
             if let Some(style)=style{
                 let mut radius=style.rounding.unwrap_or(if is_panel{0.0}else{8.0});
                 let slider=ui.add(egui::Slider::new(&mut radius,0.0..=40.0).text("Скругление").show_value(false));
                 self.controls.push(("rounding",slider.rect));
                 if slider.changed(){style.rounding=Some(radius);}
-                let mut fill=style.fill.unwrap_or(theme.surface(2).to_array());
+                let mut fill=style.fill.unwrap_or(if is_launch{theme.modules.play_button.fill_or(theme.accent_color()).to_array()}else{theme.surface(2).to_array()});
                 ui.horizontal(|ui|{ui.label("Заливка");if ui.color_edit_button_srgba_unmultiplied(&mut fill).changed(){style.fill=Some(fill);}});
                 if ui.button("Вернуть стиль темы").clicked(){*style=Default::default();}
             }
