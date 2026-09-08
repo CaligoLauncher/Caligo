@@ -1,5 +1,5 @@
 //! Shared visual primitives. Original Caligo artwork; no third-party assets.
-use eframe::egui::{self, pos2, vec2, Align2, Color32, FontId, Rect, Stroke};
+use eframe::egui::{self, pos2, vec2, Color32, FontId, Rect, Stroke};
 use crate::theme::{ModuleStyle, ThemePreset};
 
 pub const GAP: f32 = 16.0;
@@ -7,7 +7,7 @@ pub const GAP: f32 = 16.0;
 pub fn panel(p: &egui::Painter, rect: Rect, theme: &ThemePreset, style: &ModuleStyle, radius: f32) {
     let rounding = egui::Rounding::same(style.rounding_or(radius));
     p.rect_filled(rect, rounding, style.fill_or(theme.card_fill()));
-    p.rect_stroke(rect, rounding, style.border_or(Stroke::new(1.0, theme.surface(3))));
+    p.rect_stroke(rect, rounding, style.border_or(Stroke::new(1.0_f32, theme.surface(3))));
 }
 
 pub fn label(p: &egui::Painter, rect: Rect, text: &str, size: f32, color: Color32) {
@@ -36,14 +36,14 @@ pub fn contrast(c: Color32) -> Color32 {
 
 pub fn cube(p: &egui::Painter, c: egui::Pos2, s: f32, col: Color32) {
     let f = |x:f32,y:f32| c + vec2(x*s,y*s);
-    let st=Stroke::new(1.5,col);
+    let st=Stroke::new(1.5_f32,col);
     for (a,b) in [((-1.0,-0.5),(0.0,-1.0)),((0.0,-1.0),(1.0,-0.5)),((1.0,-0.5),(1.0,0.5)),((1.0,0.5),(0.0,1.0)),((0.0,1.0),(-1.0,0.5)),((-1.0,0.5),(-1.0,-0.5)),((-1.0,-0.5),(0.0,0.0)),((1.0,-0.5),(0.0,0.0)),((0.0,0.0),(0.0,1.0))] {
         p.line_segment([f(a.0,a.1),f(b.0,b.1)],st);
     }
 }
 
 pub fn arrow(p: &egui::Painter, c: egui::Pos2, col: Color32) {
-    let st=Stroke::new(1.5,col);
+    let st=Stroke::new(1.5_f32,col);
     p.line_segment([c-vec2(6.0,0.0),c+vec2(6.0,0.0)],st);
     p.line_segment([c+vec2(2.0,-4.0),c+vec2(6.0,0.0)],st);
     p.line_segment([c+vec2(2.0,4.0),c+vec2(6.0,0.0)],st);
@@ -91,7 +91,7 @@ pub fn landscape(p:&egui::Painter,r:Rect,quiet_left:bool) {
     ridge(&p,r,&[(0.0,0.62),(0.10,0.40),(0.23,0.57),(0.40,0.25),(0.51,0.46),(0.58,0.39),(0.72,0.59),(0.90,0.33),(1.0,0.42)],Color32::from_rgb(56,78,90));
     ridge(&p,r,&[(0.0,0.61),(0.20,0.48),(0.33,0.74),(0.43,0.57),(0.57,0.79),(0.69,0.56),(0.76,0.60),(0.92,0.46),(1.0,0.52)],Color32::from_rgb(35,65,77));
     gradient(&p,Rect::from_min_max(pos2(r.left(),r.top()+r.height()*0.67),r.max),Color32::from_rgba_unmultiplied(122,162,162,0),Color32::from_rgb(78,119,127),false);
-    ridge(&p,r,&[(0.0,0.70),(0.12,0.66),(0.28,0.73),(0.49,0.85),(0.60,0.91),(0.0,1.1)],Color32::from_rgb(16,43,53));
+    ridge(&p,r,&[(0.0,0.70),(0.12,0.66),(0.28,0.73),(0.49,0.85),(0.60,1.0)],Color32::from_rgb(16,43,53));
     ridge(&p,r,&[(0.68,1.0),(0.61,0.89),(0.76,0.79),(0.82,0.76),(1.0,0.77)],Color32::from_rgb(20,49,57));
     for i in 0..19 {
         let x=0.01+i as f32*0.022;
@@ -109,7 +109,7 @@ pub fn landscape(p:&egui::Painter,r:Rect,quiet_left:bool) {
         let y=r.top()+r.height()*(0.83+i as f32*0.025);
         let cx=r.left()+r.width()*(0.62+i as f32*0.005);
         let half=r.width()*(0.016+i as f32*0.006);
-        p.line_segment([pos2(cx-half,y),pos2(cx+half,y)],Stroke::new(1.0,Color32::from_rgba_unmultiplied(180,213,209,35)));
+        p.line_segment([pos2(cx-half,y),pos2(cx+half,y)],Stroke::new(1.0_f32,Color32::from_rgba_unmultiplied(180,213,209,35)));
     }
     if quiet_left {
         gradient(&p,r,Color32::from_rgba_unmultiplied(13,21,29,248),Color32::from_rgba_unmultiplied(13,21,29,0),true);

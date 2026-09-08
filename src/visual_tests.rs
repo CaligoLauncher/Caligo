@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::io::{Cursor,Write};
 use base64::Engine;
-use eframe::egui::{self,Color32,ColorImage,TextureId};
+use eframe::egui::{self,ColorImage,TextureId};
 use crate::app::{CaligoApp,Tab};
 
 fn apply_delta(textures:&mut HashMap<TextureId,ColorImage>,delta:&egui::TexturesDelta){

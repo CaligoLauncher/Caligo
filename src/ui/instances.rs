@@ -147,7 +147,7 @@ pub fn show(ui:&mut egui::Ui,theme:&ThemePreset,state:&mut InstancesState,play:&
 }
 
 fn create_form(ui:&mut egui::Ui,theme:&ThemePreset,state:&mut InstancesState,play:&mut PlayState,launch:&LaunchManager){
-    egui::Frame::none().fill(theme.surface(3)).stroke(Stroke::new(1.0,theme.surface(4))).rounding(12.0).inner_margin(20.0).show(ui,|ui|{
+    egui::Frame::none().fill(theme.surface(3)).stroke(Stroke::new(1.0_f32,theme.surface(4))).rounding(12.0).inner_margin(20.0).show(ui,|ui|{
         ui.label(egui::RichText::new("Новая сборка").size(18.0).strong());
         ui.add_space(12.0);ui.label("Название");
         ui.add_sized(vec2(ui.available_width(),40.0),egui::TextEdit::singleline(&mut state.new_name).hint_text("Например, Выживание").char_limit(80));

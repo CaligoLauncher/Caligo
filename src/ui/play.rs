@@ -102,7 +102,7 @@ fn launch_bar(ui:&mut egui::Ui,theme:&ThemePreset,auth:&AuthManager,play:&mut Pl
     let pr=Rect::from_min_size(pos2(rect.right()-pw-16.0,rect.center().y-ph/2.0),vec2(pw,ph));
     let mut v_ui=ui.new_child(egui::UiBuilder::new().max_rect(vr).layout(egui::Layout::top_down(egui::Align::Min)));
     let vs=&theme.modules.version_button;
-    let mut style=(*v_ui.style()).clone();
+    let mut style=(**v_ui.style()).clone();
     style.spacing.interact_size.y=vh;
     style.visuals.widgets.inactive.weak_bg_fill=vs.fill_or(theme.surface(2));
     style.visuals.widgets.inactive.rounding=egui::Rounding::same(vs.rounding_or(8.0));

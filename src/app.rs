@@ -95,7 +95,7 @@ impl CaligoApp{
                 ui.add_space(22.0);
                 let (mark,_)=ui.allocate_exact_size(vec2(20.0,20.0),egui::Sense::hover());
                 // Quiet, temporary crescent mark; the final moth logo belongs to Way Mee.
-                ui.painter().circle_stroke(mark.center(),7.5,Stroke::new(2.0,self.theme.accent_color()));
+                ui.painter().circle_stroke(mark.center(),7.5,Stroke::new(2.0_f32,self.theme.accent_color()));
                 ui.painter().circle_filled(mark.center()+vec2(4.0,-3.0),6.5,self.theme.surface(1));
                 ui.add_space(4.0);
                 if ui.add(egui::Label::new(egui::RichText::new("Caligo").size(17.0).strong().color(self.theme.text_primary())).sense(egui::Sense::click())).clicked(){self.tab=Tab::Home;}
@@ -147,7 +147,7 @@ impl CaligoApp{
     fn profile_popup(&mut self,ctx:&egui::Context,anchor:Rect){
         let pos=pos2((anchor.right()-PROFILE_W).max(8.0),anchor.bottom()+8.0);
         let area=egui::Area::new(egui::Id::new("profile_popup")).fixed_pos(pos).order(egui::Order::Foreground).show(ctx,|ui|{
-            egui::Frame::none().fill(self.theme.surface(2)).rounding(12.0).stroke(Stroke::new(1.0,self.theme.surface(4))).inner_margin(20.0).show(ui,|ui|{
+            egui::Frame::none().fill(self.theme.surface(2)).rounding(12.0).stroke(Stroke::new(1.0_f32,self.theme.surface(4))).inner_margin(20.0).show(ui,|ui|{
                 ui.set_width(PROFILE_W-40.0);
                 profile_window(ui,self.theme.accent_color(),&self.auth,&mut self.play,&self.skin);
                 if !self.play.offline_name.trim().is_empty(){
