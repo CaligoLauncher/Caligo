@@ -203,7 +203,10 @@ pub fn show_component(ui:&mut egui::Ui,state:&mut SettingsState,theme:&mut Theme
                 "Тема оформления",
                 "Базовые цвета и формы — их наследуют все модули",
                 |ui| {
-                    changed |= ui.checkbox(&mut theme.dark, "Тёмная тема").changed();
+                    if ui.checkbox(&mut theme.dark, "Тёмная тема").changed(){
+                        theme.background=if theme.dark{[25,25,27,255]}else{[244,244,246,255]};
+                        changed=true;
+                    }
                     ui.horizontal_wrapped(|ui| {
                         ui.label("Акцентный цвет");
                         let mut col = look.accent_color();

@@ -343,6 +343,73 @@ fn schema_one_migration_preserves_original_files_and_navigation(){
     std::fs::remove_dir_all(dir).unwrap();
 }
 #[test]
+fn flow_resize_changes_actual_width_and_library_selects_actual_version(){
+    use crate::composition::Action;
+    let ctx=egui::Context::default();let mut app=CaligoApp::visual_fixture(&ctx,Tab::Home,true);
+    app.editor.begin();
+    for _ in 0..4{editor_frame(&ctx,&mut app,vec![]);}
+    let id=app.editor.document.widgets.iter().find(|w|w.action==Action::Launch).unwrap().id;
+    let rect=app.editor.rects.iter().find(|(n,_)|*n==id).unwrap().1;
+    click(&ctx,&mut app,rect.center());
+    editor_frame(&ctx,&mut app,vec![]);
+    let handle=app.editor.controls.iter().find(|(name,_)|*name=="resize").unwrap().1.center();
+    drag_to(&ctx,&mut app,handle,handle-egui::vec2(74.0,0.0));
+    let node=app.editor.document.widgets.iter().find(|w|w.id==id).unwrap();
+    assert!(node.span<4,"horizontal flow resize must change its span");
+    for _ in 0..3{editor_frame(&ctx,&mut app,vec![]);}
+    let resized=app.editor.rects.iter().find(|(n,_)|*n==id).unwrap().1;
+    assert!(resized.width()<rect.width()-30.0);
+    app.editor.cancel();app.tab=Tab::Instances;
+    for _ in 0..3{editor_frame(&ctx,&mut app,vec![]);}
+    let library=app.editor.document.widgets.iter().find(|w|w.action==Action::LibraryList&&w.page==Some(Action::Library)).unwrap().id;
+    let r=app.editor.rects.iter().find(|(id,_)|*id==library).unwrap().1;
+    click(&ctx,&mut app,r.min+egui::vec2(90.0,68.0));
+    assert_eq!(app.play.selected_instance.as_deref(),Some("Выживание"));
+    assert_eq!(app.play.selected_version.as_deref(),Some("1.21.1"));
+    assert_eq!(app.tab,Tab::Home);
+    assert!(matches!(app.launch.state(),crate::launch::LaunchState::Idle));
+}
+
+#[test]
+fn visual_review_launch_component_and_create_dialog(){
+    use crate::composition::{Action,Anchor};
+    for (name,w,h,editing) in [
+        ("launch_component_local_1000",1000,620,true),
+        ("launch_component_local_720",720,440,true),
+        ("create_instance_720",720,440,false),
+    ] {
+        let ctx=egui::Context::default();ctx.set_pixels_per_point(1.0);
+        let mut app=CaligoApp::visual_fixture(&ctx,Tab::Home,true);
+        if editing{
+            let node=app.editor.document.widgets.iter_mut().find(|w|w.action==Action::Launch).unwrap();
+            node.flow=false;node.size=[200.0,48.0];
+            node.position=Position{anchor:Anchor::TopRight,offset:[24.0,28.0]};
+            node.style.rounding=Some(22.0);
+            let id=node.id;app.editor.begin();app.editor.test_select(id);
+        }else{crate::ui::instances::request_create(&mut app.instances);}
+        let mut textures=HashMap::new();let mut last=None;
+        for i in 0..5{
+            let out=ctx.run(egui::RawInput{
+                screen_rect:Some(egui::Rect::from_min_size(egui::Pos2::ZERO,egui::vec2(w as f32,h as f32))),
+                time:Some(i as f64/10.0),..Default::default()
+            },|ctx|app.render(ctx));
+            apply_delta(&mut textures,&out.textures_delta);last=Some(out);
+        }
+        assert!(matches!(app.launch.state(),crate::launch::LaunchState::Idle));
+        let png=raster(&ctx,last.unwrap(),&textures,w,h);
+        let mut buf=Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgba8(png).write_to(&mut buf,image::ImageFormat::Png).unwrap();
+        if std::env::var("CI").is_ok(){
+            let data=base64::engine::general_purpose::STANDARD.encode(buf.into_inner());
+            let mut stdout=std::io::stdout().lock();
+            writeln!(stdout,"CALIGO_VISUAL_BEGIN {name}").unwrap();
+            for chunk in data.as_bytes().chunks(6000){writeln!(stdout,"CALIGO_VISUAL_DATA {}",std::str::from_utf8(chunk).unwrap()).unwrap();}
+            writeln!(stdout,"CALIGO_VISUAL_END {name}").unwrap();
+        }
+    }
+}
+
+#[test]
 fn responsive_flow_has_no_overlap_and_keeps_requested_geometry(){
     let doc=crate::composition::Document::default();
     let nodes:Vec<_>=doc.widgets.iter().filter(|w|w.flow&&w.page==Some(crate::composition::Action::Home)).cloned().collect();
