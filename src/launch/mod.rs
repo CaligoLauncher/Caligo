@@ -46,6 +46,26 @@ impl LaunchManager {
         self.versions.lock().unwrap().clone()
     }
 
+    /// An explicit retry for an unavailable manifest.
+    pub fn retry_versions(&self, ctx: egui::Context) {
+        *self.versions.lock().unwrap() = None;
+        self.versions_requested.store(false, Ordering::SeqCst);
+        self.ensure_versions(ctx);
+    }
+
+    #[cfg(test)]
+    pub fn visual_fixture() -> Self {
+        let versions: Vec<ManifestVersion> = serde_json::from_value(serde_json::json!([
+            {"id":"1.21.1","type":"release","url":"https://example.invalid/fixture","time":"2024-08-08T00:00:00Z","releaseTime":"2024-08-08T00:00:00Z","sha1":"","complianceLevel":1},
+            {"id":"1.20.4","type":"release","url":"https://example.invalid/fixture","time":"2023-12-07T00:00:00Z","releaseTime":"2023-12-07T00:00:00Z","sha1":"","complianceLevel":1}
+        ])).unwrap();
+        Self {
+            state: Arc::new(Mutex::new(LaunchState::Idle)),
+            versions: Arc::new(Mutex::new(Some(Ok(versions)))),
+            versions_requested: AtomicBool::new(true),
+        }
+    }
+
     /// Fetch the Mojang version manifest once, in the background.
     pub fn ensure_versions(&self, ctx: egui::Context) {
         if self.versions_requested.swap(true, Ordering::SeqCst) {

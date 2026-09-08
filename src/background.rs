@@ -102,15 +102,15 @@ impl Background {
             // в настройках фона.
             let top = style.top.map(crate::theme::color_arr).unwrap_or_else(|| {
                 egui::Color32::from_rgb(
-                    base.r().saturating_add(8),
-                    base.g().saturating_add(11),
-                    base.b().saturating_add(20),
+                    base.r(),
+                    base.g(),
+                    base.b(),
                 )
             });
             let bottom = style
                 .bottom
                 .map(crate::theme::color_arr)
-                .unwrap_or_else(|| darken(base, 0.55));
+                .unwrap_or_else(|| darken(base, 1.0));
             vgradient(&painter, screen, top, bottom);
             // Акцентные свечения по умолчанию ВЫКЛЮЧЕНЫ: низкоальфовые
             // круги на плавном градиенте дают заметные «кольца»/полосы.

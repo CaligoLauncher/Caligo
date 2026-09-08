@@ -39,12 +39,12 @@ impl Default for ThemePreset {
             name: "Caligo Dark".to_string(),
             dark: true,
             rounding: 10.0,
-            background: [15, 17, 21, 255],
+            background: [17, 20, 26, 255],
             // Светлый голубой для тёмной темы: насыщенный «средний» синий
             // на тёмном фоне тускнеет — тёмные темы (Modrinth) используют
             // осветлённый тон акцента.
             accent: [79, 156, 255, 255],
-            opacity: 0.92,
+            opacity: 1.0,
             modules: ModuleStyles::default(),
         }
     }

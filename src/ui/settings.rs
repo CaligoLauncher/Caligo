@@ -6,6 +6,7 @@ use crate::theme::{color_arr, ModuleStyle, ThemePreset};
 pub struct SettingsState {
     pub theme_json: String,
     pub theme_error: Option<String>,
+    pub category: usize,
 }
 
 /// Секция настроек — карточка: заливка card_fill, обводка card_stroke,
@@ -19,11 +20,11 @@ fn section(
 ) {
     egui::Frame::none()
         .fill(theme.card_fill())
-        .stroke(theme.card_stroke())
-        .rounding(egui::Rounding::same(16.0))
+        .stroke(egui::Stroke::NONE)
+        .rounding(egui::Rounding::same(10.0))
         .inner_margin(egui::Margin::same(16.0))
         .show(ui, |ui| {
-            ui.set_width(ui.available_width());
+            ui.set_min_width(ui.available_width());
             ui.label(
                 egui::RichText::new(title)
                     .size(15.0)
@@ -187,20 +188,15 @@ fn rgba(c: egui::Color32) -> [u8; 4] {
 }
 
 pub fn show(ui: &mut egui::Ui, state: &mut SettingsState, theme: &mut ThemePreset) {
-    ui.add_space(4.0);
-    ui.label(
-        egui::RichText::new("Настройки")
-            .heading()
-            .strong()
-            .color(theme.text_primary()),
-    );
-    ui.add_space(2.0);
-    ui.label(
-        egui::RichText::new("Всё меняется на лету. Каждый модуль настраивается отдельно")
-            .size(13.0)
-            .color(theme.text_tertiary()),
-    );
-    ui.add_space(20.0);
+    super::components::page_title(ui,"Настройки","Оформление, модули и переносимые темы",theme);
+    ui.horizontal_wrapped(|ui| {
+        for (i,name) in ["Оформление","Модули","JSON-пресет"].iter().enumerate() {
+            if ui.add_sized([120.0,40.0],egui::SelectableLabel::new(state.category==i,*name)).clicked() {
+                state.category=i;
+            }
+        }
+    });
+    ui.add_space(16.0);
 
     // Снимок темы для отрисовки карточек и значений по умолчанию,
     // пока саму тему правят контролы.
@@ -210,6 +206,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut SettingsState, theme: &mut ThemePrese
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
+            if state.category == 0 {
             section(
                 ui,
                 &look,
@@ -248,6 +245,8 @@ pub fn show(ui: &mut egui::Ui, state: &mut SettingsState, theme: &mut ThemePrese
                 },
             );
 
+            }
+            if state.category == 1 {
             section(
                 ui,
                 &look,
@@ -257,11 +256,11 @@ pub fn show(ui: &mut egui::Ui, state: &mut SettingsState, theme: &mut ThemePrese
                     changed |= module_editor(
                         ui,
                         "m_titlebar",
-                        "Титлбар",
+                        "Верхняя панель",
                         &mut theme.modules.titlebar,
                         ModuleDefaults {
                             width: None,
-                            height: Some(36.0),
+                            height: Some(48.0),
                             rounding: 0.0,
                             fill: [0, 0, 0, 0],
                             border_color: rgba(egui::Color32::from_white_alpha(14)),
@@ -273,23 +272,10 @@ pub fn show(ui: &mut egui::Ui, state: &mut SettingsState, theme: &mut ThemePrese
                         "Боковое меню",
                         &mut theme.modules.sidebar,
                         ModuleDefaults {
-                            width: Some(56.0),
+                            width: Some(184.0),
                             height: None,
-                            rounding: 28.0,
-                            fill: rgba(look.glass_regular()),
-                            border_color: rgba(egui::Color32::from_white_alpha(14)),
-                        },
-                    );
-                    changed |= module_editor(
-                        ui,
-                        "m_group",
-                        "Панель группы",
-                        &mut theme.modules.group_panel,
-                        ModuleDefaults {
-                            width: Some(232.0),
-                            height: None,
-                            rounding: 16.0,
-                            fill: rgba(look.glass_regular()),
+                            rounding: 0.0,
+                            fill: rgba(look.surface(1)),
                             border_color: rgba(egui::Color32::from_white_alpha(14)),
                         },
                     );
@@ -299,9 +285,9 @@ pub fn show(ui: &mut egui::Ui, state: &mut SettingsState, theme: &mut ThemePrese
                         "Кнопка выбора сборки",
                         &mut theme.modules.version_button,
                         ModuleDefaults {
-                            width: Some(216.0),
+                            width: Some(260.0),
                             height: Some(48.0),
-                            rounding: 24.0,
+                            rounding: 10.0,
                             fill: rgba(look.card_fill()),
                             border_color: rgba(egui::Color32::from_white_alpha(14)),
                         },
@@ -312,9 +298,9 @@ pub fn show(ui: &mut egui::Ui, state: &mut SettingsState, theme: &mut ThemePrese
                         "Кнопка «Играть»",
                         &mut theme.modules.play_button,
                         ModuleDefaults {
-                            width: Some(176.0),
+                            width: Some(172.0),
                             height: Some(48.0),
-                            rounding: 24.0,
+                            rounding: 10.0,
                             fill: rgba(look.accent_color()),
                             border_color: rgba(egui::Color32::from_white_alpha(30)),
                         },
@@ -322,32 +308,34 @@ pub fn show(ui: &mut egui::Ui, state: &mut SettingsState, theme: &mut ThemePrese
                     changed |= module_editor(
                         ui,
                         "m_chip",
-                        "Чип профиля",
+                        "Кнопка профиля",
                         &mut theme.modules.profile_chip,
                         ModuleDefaults {
                             width: None,
-                            height: Some(26.0),
-                            rounding: 13.0,
-                            fill: rgba(look.glass_fill()),
+                            height: Some(32.0),
+                            rounding: 8.0,
+                            fill: rgba(look.surface(2)),
                             border_color: rgba(egui::Color32::from_white_alpha(10)),
                         },
                     );
                     changed |= module_editor(
                         ui,
                         "m_tabcard",
-                        "Карточка вкладок",
+                        "Область содержимого",
                         &mut theme.modules.tab_card,
                         ModuleDefaults {
                             width: None,
                             height: None,
-                            rounding: 18.0,
-                            fill: rgba(look.content_tint()),
+                            rounding: 0.0,
+                            fill: [0,0,0,0],
                             border_color: rgba(look.surface(4)),
                         },
                     );
                 },
             );
 
+            }
+            if state.category == 0 {
             section(
                 ui,
                 &look,
@@ -398,6 +386,8 @@ pub fn show(ui: &mut egui::Ui, state: &mut SettingsState, theme: &mut ThemePrese
                 },
             );
 
+            }
+            if state.category == 2 {
             section(
                 ui,
                 &look,
@@ -441,6 +431,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut SettingsState, theme: &mut ThemePrese
                     }
                 },
             );
+            }
         });
 
     if changed {
