@@ -152,7 +152,8 @@ fn edit_mode_real_pointer_move_undo_cancel_and_navigation(){
     for _ in 0..4{editor_frame(&ctx,&mut app,vec![]);}
     let add=app.editor.controls.iter().find(|(s,_)|*s=="add_panel").unwrap().1.center();
     click(&ctx,&mut app,add);editor_frame(&ctx,&mut app,vec![]);
-    click(&ctx,&mut app,egui::pos2(600.0,130.0));
+    let top=app.editor.panel_rects.iter().find(|(id,_)|*id==1).unwrap().1.top();
+    click(&ctx,&mut app,egui::pos2(600.0,top+8.0));
     for _ in 0..3{editor_frame(&ctx,&mut app,vec![]);}
     assert_eq!(app.editor.document.panels.len(),2);
     let new_id=app.editor.document.panels[1].id;

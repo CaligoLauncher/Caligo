@@ -42,12 +42,12 @@ impl Editor {
     pub fn begin(&mut self){if !self.active(){self.baseline=Some(self.document.clone());self.history=History::default();self.selected=None;}}
     pub fn cancel(&mut self){
         if let Some(d)=self.baseline.take(){self.document=d;}
-        self.drag=None;self.gesture_before=None;self.inspector=false;self.background_open=false;self.adding=false;
+        self.drag=None;self.gesture_before=None;self.history=History::default();self.inspector=false;self.background_open=false;self.adding=false;
     }
     pub fn finish(&mut self)->bool{
         if self.blocked{self.error=Some("Сохранение заблокировано: исходный файл требует восстановления. Изменения можно отменить.".into());return false}
         match composition::save(&crate::launch::install::game_dir(),self.generation,&self.document){
-            Ok(g)=>{self.generation=g;self.baseline=None;self.drag=None;self.inspector=false;self.background_open=false;self.adding=false;true}
+            Ok(g)=>{self.generation=g;self.baseline=None;self.drag=None;self.gesture_before=None;self.history=History::default();self.inspector=false;self.background_open=false;self.adding=false;true}
             Err(e)=>{self.error=Some(format!("Не сохранено: {e}"));false}
         }
     }

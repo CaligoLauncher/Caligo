@@ -150,9 +150,12 @@ pub fn load(dir:&Path)->Result<Option<(u64,Document)>,String>{
             let file=fs::File::open(&path).map_err(|e|e.to_string())?;
             let mut text=String::new();file.take(MAX_BYTES+1).read_to_string(&mut text).map_err(|e|e.to_string())?;
             if text.len() as u64>MAX_BYTES{return Err("Файл интерфейса слишком велик".into())}
-            let snap:Snapshot=serde_json::from_str(&text).map_err(|e|e.to_string())?;
-            // Future schema must not silently fall back and overwrite new data.
-            if snap.document.version!=VERSION{return Err(format!("FUTURE: версия {}",snap.document.version))}
+            let raw:serde_json::Value=serde_json::from_str(&text).map_err(|e|e.to_string())?;
+            // Inspect the version BEFORE typed parsing: a future widget enum may
+            // not deserialize, but that must never make its file overwriteable.
+            let version=raw.get("document").and_then(|d|d.get("version")).and_then(|v|v.as_u64());
+            if version.is_some_and(|v|v!=VERSION as u64){return Err(format!("FUTURE: версия {}",version.unwrap()))}
+            let snap:Snapshot=serde_json::from_value(raw).map_err(|e|e.to_string())?;
             snap.document.validate()?;Ok(snap)
         })();
         match result {Ok(s)=>valid.push(s),Err(e)=>{if e.starts_with("FUTURE:"){return Err(e)}errors.push(e);}}
