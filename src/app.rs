@@ -99,6 +99,7 @@ pub struct CaligoApp {
     pub auth: AuthManager,
     pub launch: LaunchManager,
     pub play: ui::play::PlayState,
+    pub instances: ui::instances::InstancesState,
     pub skin: SkinManager,
     background: Background,
     mist: Mist,
@@ -120,6 +121,7 @@ impl CaligoApp {
             auth: Default::default(),
             launch: Default::default(),
             play: Default::default(),
+            instances: Default::default(),
             skin: Default::default(),
             background,
             mist: Mist::new(),
@@ -315,9 +317,9 @@ impl CaligoApp {
                 );
                 card_ui.add_space(14.0);
                 for (tab, icon, label) in [
-                    (Tab::Home, "🏠", "Главная"),
-                    (Tab::Instances, "📦", "Сборки"),
-                    (Tab::Settings, "⚙", "Настройки"),
+                    (Tab::Home, NavIcon::Home, "Главная"),
+                    (Tab::Instances, NavIcon::Cube, "Сборки"),
+                    (Tab::Settings, NavIcon::Sliders, "Настройки"),
                 ] {
                     if nav_button(&mut card_ui, self.tab == tab, icon, label, accent).clicked() {
                         clicked = Some(tab);
@@ -398,7 +400,13 @@ impl eframe::App for CaligoApp {
                     &self.launch,
                     &self.skin,
                 ),
-                Tab::Instances => ui::instances::show(ui, &self.theme),
+                Tab::Instances => ui::instances::show(
+                    ui,
+                    &self.theme,
+                    &mut self.instances,
+                    &mut self.play,
+                    &self.launch,
+                ),
                 Tab::Settings => ui::settings::show(ui, &mut self.settings, &mut self.theme),
             }
         });
@@ -646,7 +654,7 @@ fn window_button(ui: &mut egui::Ui, glyph: WinGlyph, tooltip: &str, bar_h: f32) 
 fn nav_button(
     ui: &mut egui::Ui,
     selected: bool,
-    icon: &str,
+    icon: NavIcon,
     label: &str,
     accent: egui::Color32,
 ) -> egui::Response {
@@ -674,12 +682,73 @@ fn nav_button(
     } else {
         ui.visuals().text_color()
     };
-    ui.painter().text(
-        rect.center(),
-        egui::Align2::CENTER_CENTER,
-        icon,
-        egui::FontId::proportional(20.0 + hover * 1.5),
-        color,
-    );
+    paint_nav_icon(ui.painter(), rect.center(), icon, color, hover);
     response.on_hover_text(label)
+}
+
+/// Значки навигации сайдбара. Векторные, рисованные штрихами — в одном
+/// стиле с кнопками окна (единая толщина штриха на уровне иерархии,
+/// без эмодзи в роли структурных иконок).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum NavIcon {
+    Home,
+    Cube,
+    Sliders,
+}
+
+/// Рисует иконку навигации штрихами. При наведении слегка растёт.
+fn paint_nav_icon(
+    painter: &egui::Painter,
+    center: egui::Pos2,
+    icon: NavIcon,
+    color: egui::Color32,
+    hover: f32,
+) {
+    let s = 1.0 + hover * 0.08;
+    let stroke = egui::Stroke::new(1.5_f32, color);
+    let p = |x: f32, y: f32| center + egui::vec2(x * s, y * s);
+    match icon {
+        NavIcon::Home => {
+            // Домик: крыша, стены и дверной проём.
+            painter.line_segment([p(-7.0, 0.5), p(0.0, -6.5)], stroke);
+            painter.line_segment([p(0.0, -6.5), p(7.0, 0.5)], stroke);
+            painter.line_segment([p(-5.0, -0.5), p(-5.0, 6.5)], stroke);
+            painter.line_segment([p(5.0, -0.5), p(5.0, 6.5)], stroke);
+            painter.line_segment([p(-5.0, 6.5), p(-1.8, 6.5)], stroke);
+            painter.line_segment([p(1.8, 6.5), p(5.0, 6.5)], stroke);
+            painter.line_segment([p(-1.8, 6.5), p(-1.8, 2.8)], stroke);
+            painter.line_segment([p(1.8, 6.5), p(1.8, 2.8)], stroke);
+            painter.line_segment([p(-1.8, 2.8), p(1.8, 2.8)], stroke);
+        }
+        NavIcon::Cube => {
+            // Изометрический куб — «сборка» как блок Minecraft.
+            let top = p(0.0, -7.5);
+            let ne = p(6.5, -3.75);
+            let se = p(6.5, 3.75);
+            let bottom = p(0.0, 7.5);
+            let sw = p(-6.5, 3.75);
+            let nw = p(-6.5, -3.75);
+            let mid = p(0.0, 0.0);
+            for seg in [
+                [top, ne],
+                [ne, se],
+                [se, bottom],
+                [bottom, sw],
+                [sw, nw],
+                [nw, top],
+                [mid, nw],
+                [mid, ne],
+                [mid, bottom],
+            ] {
+                painter.line_segment(seg, stroke);
+            }
+        }
+        NavIcon::Sliders => {
+            // Три дорожки с бегунками на разных позициях.
+            for (dy, knob_x) in [(-5.0_f32, -2.0_f32), (0.0, 3.0), (5.0, -3.5)] {
+                painter.line_segment([p(-7.0, dy), p(7.0, dy)], stroke);
+                painter.circle_filled(p(knob_x, dy), 2.4 * s, color);
+            }
+        }
+    }
 }
