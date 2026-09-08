@@ -322,7 +322,7 @@ impl Editor {
         let rect=self.rects.iter().chain(self.panel_rects.iter()).find(|(i,_)|*i==id).map(|(_,r)|*r).unwrap_or(layout.content);
         let pos=pos2((rect.right()+12.0).min(layout.bounds.right()-280.0).max(layout.bounds.left()+8.0),(rect.top()+34.0).min(layout.bounds.bottom()-290.0).max(layout.bounds.top()));
         let mut remove=false;let mut parent_select=None;let mut close=false;
-        let window=egui::Window::new(name.clone()).id(Id::new(("local_inspector",id))).order(egui::Order::Foreground).fixed_pos(pos).default_width(252.0).default_height(0.0).min_height(0.0).resizable(false).collapsible(false).title_bar(false).constrain_to(layout.bounds.shrink(8.0)).max_height((layout.bounds.height()-32.0).max(120.0)).vscroll(true).show(ctx,|ui|{
+        let window=egui::Window::new(name.clone()).id(Id::new(("local_inspector",id))).order(egui::Order::Foreground).fixed_pos(pos).default_width(252.0).default_height(340.0).min_height(120.0).resizable(false).collapsible(false).title_bar(false).constrain_to(layout.bounds.shrink(8.0)).max_height((layout.bounds.height()-32.0).max(120.0)).vscroll(true).show(ctx,|ui|{
             ui.label(egui::RichText::new(name).size(15.0).strong());
             ui.label(egui::RichText::new("Только выбранный элемент").size(11.0).color(theme.text_tertiary()));
             if let Some(w)=self.document.widgets.iter_mut().find(|w|w.id==id){
