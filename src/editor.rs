@@ -67,7 +67,7 @@ impl Editor {
                 if let Some(d)=self.drag.take(){self.document=d.before;}else{self.adding=false;self.inspector=false;self.background_open=false;}
             }
         }
-        egui::TopBottomPanel::top("composition_toolbar").exact_height(74.0)
+        egui::TopBottomPanel::top("composition_toolbar").exact_height(88.0)
             .frame(egui::Frame::none().fill(theme.surface(2)).inner_margin(egui::Margin::symmetric(12.0,8.0)))
             .show(ctx,|ui|{
                 ui.horizontal(|ui|{
@@ -94,7 +94,7 @@ impl Editor {
                     });
                 });
                 ui.horizontal(|ui|{
-                    ui.label(egui::RichText::new(if self.adding{"Нажми у края для закрепления или в центре для свободной панели. Esc — отмена."}else{"Перетаскивай кнопки. Потяни границу панели. Шестерёнка — стиль выбранного элемента."}).size(11.0).color(theme.text_tertiary()));
+                    ui.label(egui::RichText::new(if self.adding{"Нажми у края для закрепления или в центре для свободной панели. Esc — отмена."}else{"Потяни кнопку или ручку размера. Шестерёнка — локальный стиль."}).size(11.0).color(theme.text_tertiary()));
                     ui.menu_button("Объекты",|ui|{
                         let panels=self.document.panels.clone();let widgets=self.document.widgets.clone();
                         for p in panels {if ui.button(format!("Панель {}",p.id)).clicked(){self.selected=Some(p.id);self.inspector=true;ui.close_menu();}}
@@ -315,12 +315,15 @@ impl Editor {
         let rect=self.rects.iter().chain(self.panel_rects.iter()).find(|(i,_)|*i==id).map(|(_,r)|*r).unwrap_or(layout.content);
         let pos=pos2((rect.right()+12.0).min(layout.bounds.right()-280.0).max(layout.bounds.left()+8.0),(rect.top()+34.0).min(layout.bounds.bottom()-290.0).max(layout.bounds.top()));
         let mut remove=false;let mut parent_select=None;let mut close=false;
-        egui::Window::new(name).id(Id::new(("local_inspector",id))).order(egui::Order::Foreground).fixed_pos(pos).default_width(252.0).resizable(false).collapsible(false).show(ctx,|ui|{
+        let window=egui::Window::new(name.clone()).id(Id::new(("local_inspector",id))).order(egui::Order::Foreground).fixed_pos(pos).default_width(252.0).resizable(false).collapsible(false).title_bar(false).constrain_to(layout.bounds.shrink(8.0)).max_height((layout.bounds.height()-32.0).max(120.0)).vscroll(true).show(ctx,|ui|{
+            ui.label(egui::RichText::new(name).size(15.0).strong());
             ui.label(egui::RichText::new("Только выбранный элемент").size(11.0).color(theme.text_tertiary()));
             if let Some(w)=self.document.widgets.iter_mut().find(|w|w.id==id){
                 if let Some(parent)=w.panel{if ui.small_button("Выбрать родительскую панель").clicked(){parent_select=Some(parent);}}
                 ui.add(egui::TextEdit::singleline(&mut w.label).char_limit(80).desired_width(236.0));
-                ui.checkbox(&mut w.bottom,"Прижать вниз (вертикальная панель)");
+                if w.panel.and_then(|id|self.document.panels.iter().find(|p|p.id==id)).is_some_and(|p|p.vertical){
+                    ui.checkbox(&mut w.bottom,"Прижать вниз");
+                }
                 if w.panel.is_none(){anchor_ui(ui,&mut w.position);}
             }
             if let Some(p)=self.document.panels.iter_mut().find(|p|p.id==id){
@@ -345,6 +348,7 @@ impl Editor {
             });
             ui.label(egui::RichText::new(if is_panel{"Удаляет панель и её кнопки, не данные игры. Можно отменить."}else{"Удаляет только кнопку из интерфейса. Можно отменить."}).size(11.0).color(theme.text_tertiary()));
         });
+        if let Some(window)=window{self.controls.push(("inspector",window.response.rect));}
         if remove{self.document.remove(id);self.selected=None;self.inspector=false;}
         if close{self.inspector=false;}
         if let Some(p)=parent_select{self.selected=Some(p);}

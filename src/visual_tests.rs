@@ -242,6 +242,12 @@ fn visual_review_editor_screens(){
             let out=ctx.run(egui::RawInput{screen_rect:Some(egui::Rect::from_min_size(egui::Pos2::ZERO,egui::vec2(w as f32,h as f32))),time:Some(i as f64/10.0),..Default::default()},|ctx|app.render(ctx));
             apply_delta(&mut textures,&out.textures_delta);last=Some(out);
         }
+        if editing {
+            let inspector=app.editor.controls.iter().find(|(s,_)|*s=="inspector").unwrap().1;
+            let available_top=app.editor.panel_rects.iter().map(|(_,r)|r.top()).fold(f32::INFINITY,f32::min);
+            assert!(inspector.top()>=available_top-1.0,"local inspector must not cover protected toolbar");
+            assert!(inspector.bottom()<=h as f32,"local inspector must remain on screen");
+        }
         let png=raster(&ctx,last.unwrap(),&textures,w,h);
         let mut buf=Cursor::new(Vec::new());
         image::DynamicImage::ImageRgba8(png).write_to(&mut buf,image::ImageFormat::Png).unwrap();
