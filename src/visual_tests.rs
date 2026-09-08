@@ -166,6 +166,16 @@ fn edit_mode_real_pointer_move_undo_cancel_and_navigation(){
     let undo=app.editor.controls.iter().find(|(s,_)|*s=="undo").unwrap().1.center();
     click(&ctx,&mut app,undo);
     assert_eq!(app.editor.document.widgets.iter().find(|w|w.id==3).unwrap().panel,Some(1));
+    let p=app.editor.rects.iter().find(|(id,_)|*id==3).unwrap().1.center();
+    click(&ctx,&mut app,p);editor_frame(&ctx,&mut app,vec![]);
+    let gear=app.editor.controls.iter().find(|(s,_)|*s=="gear").unwrap().1.center();
+    click(&ctx,&mut app,gear);
+    for _ in 0..5{editor_frame(&ctx,&mut app,vec![]);}
+    let slider=app.editor.controls.iter().find(|(s,_)|*s=="rounding").unwrap().1;
+    click(&ctx,&mut app,slider.left_center()+egui::vec2(78.0,0.0));
+    editor_frame(&ctx,&mut app,vec![]);
+    assert!(app.editor.document.widgets.iter().find(|w|w.id==3).unwrap().style.rounding.unwrap_or(8.0)>15.0);
+    assert_eq!(app.editor.document.widgets.iter().find(|w|w.id==2).unwrap().style.rounding,None);
     app.editor.cancel();assert_eq!(app.editor.document,original);
     for _ in 0..3{editor_frame(&ctx,&mut app,vec![]);}
     let p=app.editor.rects.iter().find(|(id,_)|*id==3).unwrap().1.center();
@@ -186,9 +196,34 @@ fn free_position_and_editor_selection_do_not_launch_game(){
 }
 
 #[test]
+fn panel_resize_pointer_and_restart_preserve_navigation(){
+    let ctx=egui::Context::default();let mut app=CaligoApp::visual_fixture(&ctx,Tab::Home,false);
+    app.editor.begin();
+    for _ in 0..4{editor_frame(&ctx,&mut app,vec![]);}
+    click(&ctx,&mut app,egui::pos2(150.0,400.0));
+    editor_frame(&ctx,&mut app,vec![]);
+    let h=app.editor.controls.iter().find(|(s,_)|*s=="resize").unwrap().1.center();
+    drag_to(&ctx,&mut app,h,h+egui::vec2(48.0,0.0));
+    assert!((app.editor.document.panels[0].size[0]-232.0).abs()<2.0);
+    assert_eq!(app.editor.document.panels[0].size[1],64.0,"resizing width must not corrupt dormant height");
+    let saved=app.editor.document.clone();
+    let dir=std::env::temp_dir().join(format!("caligo-editor-restart-{}-{}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    crate::composition::save(&dir,0,&saved).unwrap();
+    let (_,loaded)=crate::composition::load(&dir).unwrap().unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+    let ctx2=egui::Context::default();let mut restarted=CaligoApp::visual_fixture(&ctx2,Tab::Home,false);
+    restarted.editor.document=loaded;
+    for _ in 0..4{editor_frame(&ctx2,&mut restarted,vec![]);}
+    assert_eq!(restarted.editor.document,saved);
+    let p=restarted.editor.rects.iter().find(|(id,_)|*id==3).unwrap().1.center();
+    click(&ctx2,&mut restarted,p);assert_eq!(restarted.tab,Tab::Instances);
+}
+
+#[test]
 fn visual_review_editor_screens(){
     for (name,w,h,editing,custom) in [
         ("editor_default_1000",1000,620,true,false),
+        ("editor_local_720",720,440,true,true),
         ("editor_local_1000",1000,620,true,true),
         ("composition_top_1000",1000,620,false,true),
         ("composition_top_720",720,440,false,true),

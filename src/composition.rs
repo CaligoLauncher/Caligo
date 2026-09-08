@@ -234,6 +234,20 @@ mod tests {
         assert_eq!(d.widgets[0].style.rounding,None);
         d.remove(1);assert!(d.panels.is_empty()&&d.widgets.is_empty());assert!(d.validate().is_ok());
     }
+    #[test] fn future_schema_and_write_failure_preserve_files(){
+        let dir=std::env::temp_dir().join(format!("caligo-future-{}-{}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let d=Document::default();save(&dir,0,&d).unwrap();
+        let future=r#"{"generation":2,"document":{"version":999,"new_schema":"preserve me"}}"#;
+        fs::write(dir.join("interface-b.json"),future).unwrap();
+        assert!(load(&dir).is_err());assert!(save(&dir,1,&d).is_err());
+        assert_eq!(fs::read_to_string(dir.join("interface-b.json")).unwrap(),future);
+        fs::remove_file(dir.join("interface-b.json")).unwrap();
+        fs::create_dir(dir.join("interface-b.json")).unwrap();
+        assert!(save(&dir,1,&d).is_err());
+        assert_eq!(load(&dir).unwrap().unwrap(),(1,d));
+        assert!(!dir.join("interface.lock").exists());
+        fs::remove_dir_all(dir).unwrap();
+    }
     #[test] fn persistence_recovers_last_slot_and_rejects_stale_writer(){
         let dir=std::env::temp_dir().join(format!("caligo-layout-{}-{}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
         let d=Document::default();assert_eq!(save(&dir,0,&d).unwrap(),1);

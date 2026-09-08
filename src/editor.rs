@@ -199,9 +199,19 @@ impl Editor {
                     gear_icon(ui.painter(),gear.center(),accent);
                     if ui.interact(gear,Id::new("local_gear"),Sense::click()).on_hover_text("Настройки выбранного элемента").clicked(){self.inspector=!self.inspector;self.background_open=false;}
                     self.controls.push(("gear",gear));
-                    let handle=Rect::from_center_size(r.right_bottom()-vec2(5.0,5.0),vec2(14.0,14.0));
-                    ui.painter().rect_filled(handle.shrink(3.0),2.0,accent);
-                    let h=ui.interact(handle,Id::new("resize_handle"),Sense::drag()).on_hover_cursor(egui::CursorIcon::ResizeNwSe);
+                    let edge=self.document.panels.iter().find(|p|p.id==id).map(|p|p.edge).unwrap_or(Edge::Float);
+                    let center=match edge {
+                        Edge::Left=>r.right_center()-vec2(5.0,0.0),
+                        Edge::Right=>r.left_center()+vec2(5.0,0.0),
+                        Edge::Top=>r.center_bottom()-vec2(0.0,5.0),
+                        Edge::Bottom=>r.center_top()+vec2(0.0,5.0),
+                        Edge::Float=>r.right_bottom()-vec2(5.0,5.0),
+                    };
+                    let handle=Rect::from_center_size(center,vec2(18.0,18.0));
+                    ui.painter().rect_filled(handle.shrink(4.0),2.0,accent);
+                    self.controls.push(("resize",handle));
+                    let cursor=match edge{Edge::Left|Edge::Right=>egui::CursorIcon::ResizeHorizontal,Edge::Top|Edge::Bottom=>egui::CursorIcon::ResizeVertical,_=>egui::CursorIcon::ResizeNwSe};
+                    let h=ui.interact(handle,Id::new("resize_handle"),Sense::drag()).on_hover_cursor(cursor);
                     if h.drag_started(){if let Some(start)=ctx.input(|i|i.pointer.press_origin()){self.drag=Some(Drag{id,kind:DragKind::Size,start,rect:*r,before:self.document.clone()});}}
                 }
             }
@@ -220,7 +230,16 @@ impl Editor {
             if let Some(d)=&self.drag {
                 if let Some(p)=ctx.pointer_interact_pos(){
                     let mut ghost=d.rect.translate(p-d.start);
-                    if d.kind==DragKind::Size {ghost=d.rect;ghost.max=(ghost.max+(p-d.start)).max(ghost.min+vec2(44.0,44.0));}
+                    if d.kind==DragKind::Size {
+                        ghost=d.rect;let delta=p-d.start;
+                        match self.document.panels.iter().find(|w|w.id==d.id).map(|p|p.edge).unwrap_or(Edge::Float){
+                            Edge::Left=>ghost.max.x=(ghost.max.x+delta.x).max(ghost.min.x+44.0),
+                            Edge::Right=>ghost.min.x=(ghost.min.x+delta.x).min(ghost.max.x-44.0),
+                            Edge::Top=>ghost.max.y=(ghost.max.y+delta.y).max(ghost.min.y+44.0),
+                            Edge::Bottom=>ghost.min.y=(ghost.min.y+delta.y).min(ghost.max.y-44.0),
+                            Edge::Float=>ghost.max=(ghost.max+delta).max(ghost.min+vec2(44.0,44.0)),
+                        }
+                    }
                     if d.kind==DragKind::Move {
                         if let Some((pid,r))=panel_rects.iter().rev().find(|(id,r)|*id!=d.id&&r.contains(p)){
                             if self.document.widgets.iter().any(|w|w.id==d.id){
@@ -246,7 +265,16 @@ impl Editor {
                     if d.kind==DragKind::Size {
                         let s=(d.rect.size()+(p-d.start)).clamp(vec2(44.0,44.0),vec2(1000.0,1000.0));
                         if let Some(w)=self.document.widgets.iter_mut().find(|w|w.id==d.id){w.size=[s.x,s.y];}
-                        if let Some(panel)=self.document.panels.iter_mut().find(|w|w.id==d.id){panel.size=[s.x,s.y];}
+                        if let Some(panel)=self.document.panels.iter_mut().find(|w|w.id==d.id){
+                            let delta=p-d.start;
+                            match panel.edge {
+                                Edge::Left=>panel.size[0]=(d.rect.width()+delta.x).clamp(44.0,1000.0),
+                                Edge::Right=>panel.size[0]=(d.rect.width()-delta.x).clamp(44.0,1000.0),
+                                Edge::Top=>panel.size[1]=(d.rect.height()+delta.y).clamp(44.0,1000.0),
+                                Edge::Bottom=>panel.size[1]=(d.rect.height()-delta.y).clamp(44.0,1000.0),
+                                Edge::Float=>panel.size=[s.x,s.y],
+                            }
+                        }
                     }else if let Some(panel)=self.document.panels.iter_mut().find(|w|w.id==d.id){
                         panel.edge=near_edge(p,bounds);panel.vertical=matches!(panel.edge,Edge::Left|Edge::Right);
                         panel.position=Position::from_rect(d.rect.translate(p-d.start),bounds,snap);
@@ -303,7 +331,9 @@ impl Editor {
             let style=if is_panel{self.document.panels.iter_mut().find(|p|p.id==id).map(|p|&mut p.style)}else{self.document.widgets.iter_mut().find(|p|p.id==id).map(|p|&mut p.style)};
             if let Some(style)=style{
                 let mut radius=style.rounding.unwrap_or(if is_panel{0.0}else{8.0});
-                if ui.add(egui::Slider::new(&mut radius,0.0..=40.0).text("Скругление").show_value(false)).changed(){style.rounding=Some(radius);}
+                let slider=ui.add(egui::Slider::new(&mut radius,0.0..=40.0).text("Скругление").show_value(false));
+                self.controls.push(("rounding",slider.rect));
+                if slider.changed(){style.rounding=Some(radius);}
                 let mut fill=style.fill.unwrap_or(theme.surface(2).to_array());
                 ui.horizontal(|ui|{ui.label("Заливка");if ui.color_edit_button_srgba_unmultiplied(&mut fill).changed(){style.fill=Some(fill);}});
                 if ui.button("Вернуть стиль темы").clicked(){*style=Default::default();}
