@@ -17,6 +17,8 @@ fn install_fonts(ctx:&egui::Context){
     let mut fonts=egui::FontDefinitions::default();
     fonts.font_data.insert("manrope".into(),egui::FontData::from_static(include_bytes!("../assets/fonts/Manrope.ttf")));
     fonts.families.get_mut(&egui::FontFamily::Proportional).unwrap().insert(0,"manrope".into());
+    fonts.font_data.insert("manrope-semibold".into(),egui::FontData::from_static(include_bytes!("../assets/fonts/Manrope-SemiBold.ttf")));
+    fonts.families.insert(egui::FontFamily::Name("heading".into()),vec!["manrope-semibold".into(),"manrope".into()]);
     ctx.set_fonts(fonts);
 }
 
@@ -121,13 +123,13 @@ impl CaligoApp{
             ui.painter().rect_filled(r,sb.rounding_or(0.0),sb.fill_or(self.theme.surface(1)));
             if let Some(s)=sb.border_override(){ui.painter().rect_stroke(r,sb.rounding_or(0.0),s);}
             let inner=r.shrink2(vec2(12.0,12.0));
-            let mut child=ui.new_child(egui::UiBuilder::new().max_rect(inner));
+            let mut child=ui.new_child(egui::UiBuilder::new().id_salt("sidebar_top").max_rect(inner));
             for (tab,icon,name) in [(Tab::Home,NavIcon::Home,"Главная"),(Tab::Instances,NavIcon::Cube,"Сборки")]{
                 if self.navigation_row(&mut child,tab,icon,name,width).clicked(){self.tab=tab;}
                 child.add_space(6.0);
             }
             let bottom=Rect::from_min_size(pos2(inner.left(),inner.bottom()-68.0),vec2(inner.width(),48.0));
-            let mut bottom_ui=ui.new_child(egui::UiBuilder::new().max_rect(bottom));
+            let mut bottom_ui=ui.new_child(egui::UiBuilder::new().id_salt("sidebar_bottom").max_rect(bottom));
             if self.navigation_row(&mut bottom_ui,Tab::Settings,NavIcon::Sliders,"Настройки",width).clicked(){self.tab=Tab::Settings;}
         });
     }
@@ -150,6 +152,8 @@ impl CaligoApp{
             egui::Frame::none().fill(self.theme.surface(2)).rounding(12.0).stroke(Stroke::new(1.0_f32,self.theme.surface(4))).inner_margin(20.0).show(ui,|ui|{
                 ui.set_width(PROFILE_W-40.0);
                 profile_window(ui,self.theme.accent_color(),&self.auth,&mut self.play,&self.skin);
+                if self.skin.loading(){ui.label("Загрузка скина…");}
+                if let Some(error)=self.skin.error(){ui.label(egui::RichText::new(format!("Скин недоступен: {error}")).size(12.0));}
                 if !self.play.offline_name.trim().is_empty(){
                     let (r,_)=ui.allocate_exact_size(vec2(PROFILE_W-40.0,160.0),egui::Sense::hover());
                     skin::paint_paperdoll(ui.painter(),r,self.skin.texture().as_ref(),None,self.theme.accent_color(),0.0);

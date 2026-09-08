@@ -27,21 +27,22 @@ pub fn show(ui:&mut egui::Ui,theme:&ThemePreset,auth:&AuthManager,play:&mut Play
     c::page_title(ui,"Главная","",theme);
     egui::ScrollArea::vertical().id_salt("home_scroll").auto_shrink([false,false]).show(ui,|ui| {
         let width=ui.available_width();
-        let hero_h=if width<650.0 {200.0} else {236.0};
+        let hero_h=if width<650.0 {160.0} else {192.0};
         let (hero,_)=ui.allocate_exact_size(vec2(width,hero_h),egui::Sense::hover());
         // An original in-app landscape, not a remote marketing banner.
         c::landscape(ui.painter(),hero,true);
         let content=Rect::from_min_max(hero.min+vec2(28.0,20.0),pos2(hero.left()+hero.width()*0.65,hero.bottom()-20.0));
         c::label(ui.painter(),Rect::from_min_size(content.min,vec2(content.width(),20.0)),"Minecraft · Java Edition",12.0,Color32::from_rgb(175,195,207));
-        let title=play.selected_instance.as_deref().unwrap_or("Твой следующий мир");
+        let title=play.selected_instance.as_deref().unwrap_or("Minecraft");
         let title_r=Rect::from_min_size(content.min+vec2(0.0,34.0),vec2(content.width(),48.0));
         c::label(ui.painter(),title_r,title,if width<650.0 {27.0}else{33.0},Color32::WHITE);
-        c::label(ui.painter(),Rect::from_min_size(content.min+vec2(0.0,88.0),vec2(content.width(),22.0)),"Выбери версию. Всё остальное — за горизонтом.",13.0,Color32::from_rgb(175,195,207));
+        c::label(ui.painter(),Rect::from_min_size(content.min+vec2(0.0,84.0),vec2(content.width(),22.0)),"Твоя игра. Твои правила.",13.0,Color32::from_rgb(175,195,207));
         let mode=if matches!(auth.state(),AuthState::SignedIn(_)) {"Microsoft-аккаунт"} else {"Оффлайн-режим"};
-        c::label(ui.painter(),Rect::from_min_size(pos2(content.left(),hero.bottom()-46.0),vec2(content.width(),20.0)),mode,12.0,Color32::from_rgb(175,195,207));
+        c::label(ui.painter(),Rect::from_min_size(pos2(content.left(),hero.bottom()-32.0),vec2(content.width(),20.0)),mode,12.0,Color32::from_rgb(175,195,207));
 
+        ui.add_space(-8.0);
         launch_bar(ui,theme,auth,play,launch);
-        ui.add_space(24.0);
+        ui.add_space(16.0);
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new("Библиотека").size(18.0).strong().color(theme.text_primary()));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui| {
@@ -100,7 +101,7 @@ fn launch_bar(ui:&mut egui::Ui,theme:&ThemePreset,auth:&AuthManager,play:&mut Pl
     let vw=theme.modules.version_button.width_or(260.0).clamp(120.0,(width-pw-48.0).max(120.0));
     let vr=Rect::from_min_size(pos2(rect.left()+16.0,rect.center().y-vh/2.0),vec2(vw,vh));
     let pr=Rect::from_min_size(pos2(rect.right()-pw-16.0,rect.center().y-ph/2.0),vec2(pw,ph));
-    let mut v_ui=ui.new_child(egui::UiBuilder::new().max_rect(vr).layout(egui::Layout::top_down(egui::Align::Min)));
+    let mut v_ui=ui.new_child(egui::UiBuilder::new().id_salt("launch_version_region").max_rect(vr).layout(egui::Layout::top_down(egui::Align::Min)));
     let vs=&theme.modules.version_button;
     let mut style=(**v_ui.style()).clone();
     style.spacing.interact_size.y=vh;
@@ -135,7 +136,7 @@ fn launch_bar(ui:&mut egui::Ui,theme:&ThemePreset,auth:&AuthManager,play:&mut Pl
     let label=match &current {LaunchState::Preparing(_)=>"Подготовка…",LaunchState::Running=>"Игра запущена",_=>"Играть"};
     let ps=&theme.modules.play_button;
     let fill=ps.fill_or(theme.accent_color());
-    let mut b_ui=ui.new_child(egui::UiBuilder::new().max_rect(pr));
+    let mut b_ui=ui.new_child(egui::UiBuilder::new().id_salt("launch_button_region").max_rect(pr).layout(egui::Layout::top_down(egui::Align::Center)));
     let response=b_ui.add_enabled(enabled,egui::Button::new(egui::RichText::new(label).size(15.0).strong().color(c::contrast(fill)))
         .fill(fill).rounding(egui::Rounding::same(ps.rounding_or(10.0)))
         .stroke(ps.border_or(Stroke::NONE)).min_size(pr.size()));

@@ -1,17 +1,11 @@
 //! Shared visual primitives. Original Caligo artwork; no third-party assets.
 use eframe::egui::{self, pos2, vec2, Color32, FontId, Rect, Stroke};
-use crate::theme::{ModuleStyle, ThemePreset};
+use crate::theme::ThemePreset;
 
 pub const GAP: f32 = 16.0;
 
-pub fn panel(p: &egui::Painter, rect: Rect, theme: &ThemePreset, style: &ModuleStyle, radius: f32) {
-    let rounding = egui::Rounding::same(style.rounding_or(radius));
-    p.rect_filled(rect, rounding, style.fill_or(theme.card_fill()));
-    p.rect_stroke(rect, rounding, style.border_or(Stroke::new(1.0_f32, theme.surface(3))));
-}
-
 pub fn label(p: &egui::Painter, rect: Rect, text: &str, size: f32, color: Color32) {
-    let font = FontId::proportional(size);
+    let font = FontId::new(size,if size>=18.0 {egui::FontFamily::Name("heading".into())}else{egui::FontFamily::Proportional});
     let mut job = egui::text::LayoutJob::simple_singleline(text.to_owned(), font, color);
     job.wrap.max_width = rect.width().max(1.0);
     job.wrap.max_rows = 1;
@@ -40,13 +34,6 @@ pub fn cube(p: &egui::Painter, c: egui::Pos2, s: f32, col: Color32) {
     for (a,b) in [((-1.0,-0.5),(0.0,-1.0)),((0.0,-1.0),(1.0,-0.5)),((1.0,-0.5),(1.0,0.5)),((1.0,0.5),(0.0,1.0)),((0.0,1.0),(-1.0,0.5)),((-1.0,0.5),(-1.0,-0.5)),((-1.0,-0.5),(0.0,0.0)),((1.0,-0.5),(0.0,0.0)),((0.0,0.0),(0.0,1.0))] {
         p.line_segment([f(a.0,a.1),f(b.0,b.1)],st);
     }
-}
-
-pub fn arrow(p: &egui::Painter, c: egui::Pos2, col: Color32) {
-    let st=Stroke::new(1.5_f32,col);
-    p.line_segment([c-vec2(6.0,0.0),c+vec2(6.0,0.0)],st);
-    p.line_segment([c+vec2(2.0,-4.0),c+vec2(6.0,0.0)],st);
-    p.line_segment([c+vec2(2.0,4.0),c+vec2(6.0,0.0)],st);
 }
 
 fn gradient(p: &egui::Painter,r:Rect,a:Color32,b:Color32,horizontal:bool) {
@@ -117,7 +104,7 @@ pub fn landscape(p:&egui::Painter,r:Rect,quiet_left:bool) {
 }
 
 pub fn page_title(ui:&mut egui::Ui,title:&str,subtitle:&str,theme:&ThemePreset) {
-    ui.label(egui::RichText::new(title).size(26.0).strong().color(theme.text_primary()));
+    ui.label(egui::RichText::new(title).font(FontId::new(26.0,egui::FontFamily::Name("heading".into()))).color(theme.text_primary()));
     if !subtitle.is_empty() {
         ui.label(egui::RichText::new(subtitle).size(13.0).color(theme.text_tertiary()));
     }
@@ -125,7 +112,7 @@ pub fn page_title(ui:&mut egui::Ui,title:&str,subtitle:&str,theme:&ThemePreset) 
 }
 
 pub fn empty(ui:&mut egui::Ui,title:&str,subtitle:&str,theme:&ThemePreset) {
-    let (r,_)=ui.allocate_exact_size(vec2(ui.available_width(),108.0),egui::Sense::hover());
+    let (r,_)=ui.allocate_exact_size(vec2(ui.available_width(),78.0),egui::Sense::hover());
     cube(ui.painter(),pos2(r.left()+24.0,r.top()+35.0),12.0,theme.text_tertiary());
     label(ui.painter(),Rect::from_min_size(r.min+vec2(52.0,16.0),vec2(r.width()-64.0,24.0)),title,15.0,theme.text_primary());
     let mut sub=ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(r.min+vec2(52.0,46.0),r.max)));

@@ -262,7 +262,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut SettingsState, theme: &mut ThemePrese
                             width: None,
                             height: Some(48.0),
                             rounding: 0.0,
-                            fill: [0, 0, 0, 0],
+                            fill: rgba(look.surface(1)),
                             border_color: rgba(egui::Color32::from_white_alpha(14)),
                         },
                     );
@@ -287,8 +287,8 @@ pub fn show(ui: &mut egui::Ui, state: &mut SettingsState, theme: &mut ThemePrese
                         ModuleDefaults {
                             width: Some(260.0),
                             height: Some(48.0),
-                            rounding: 10.0,
-                            fill: rgba(look.card_fill()),
+                            rounding: 8.0,
+                            fill: rgba(look.surface(2)),
                             border_color: rgba(egui::Color32::from_white_alpha(14)),
                         },
                     );
