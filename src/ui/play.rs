@@ -62,10 +62,16 @@ pub fn launch_button(ui:&mut egui::Ui,theme:&ThemePreset,w:&Widget,play:&PlaySta
     let enabled=selected_version(play,launch).is_some()&&!busy;
     let label=match state {LaunchState::Preparing(_)=>"Подготовка…",LaunchState::Running=>"Игра запущена",_=>w.label.as_str()};
     let fill=w.style.fill.map(crate::theme::color_arr).unwrap_or(theme.modules.play_button.fill_or(theme.accent_color()));
-    ui.add_enabled(enabled,egui::Button::new(egui::RichText::new(label).size(15.0).strong().color(c::contrast(fill)))
-        .fill(fill).rounding(w.style.rounding.unwrap_or(theme.modules.play_button.rounding_or(theme.rounding)))
-        .stroke(theme.modules.play_button.border_or(egui::Stroke::NONE))
-        .min_size(vec2(ui.available_width(),ui.available_height().max(32.0)))).on_hover_text(if enabled{"Запустить выбранную версию Minecraft"}else if busy{"Дождись завершения текущего запуска"}else{"Нужна доступная версия Minecraft"}).clicked()
+    let (rect,response)=ui.allocate_exact_size(ui.available_size().max(vec2(32.0,32.0)),egui::Sense::click());
+    let radius=w.style.rounding.unwrap_or(theme.modules.play_button.rounding_or(theme.rounding));
+    let mut fill=fill;
+    if !enabled||!ui.is_enabled(){fill=fill.gamma_multiply(0.45);}
+    ui.painter().rect_filled(rect,radius,fill);
+    if response.hovered()&&enabled&&ui.is_enabled(){ui.painter().rect_filled(rect,radius,egui::Color32::from_white_alpha(14));}
+    ui.painter().rect_stroke(rect,radius,theme.modules.play_button.border_or(egui::Stroke::NONE));
+    ui.painter().text(rect.center(),egui::Align2::CENTER_CENTER,label,egui::FontId::proportional(15.0),c::contrast(fill));
+    response.on_hover_text(if enabled{"Запустить выбранную версию Minecraft"}else if busy{"Дождись завершения текущего запуска"}else{"Нужна доступная версия Minecraft"}).clicked()&&enabled&&ui.is_enabled()
+
 }
 pub fn status(ui:&mut egui::Ui,theme:&ThemePreset,launch:&LaunchManager){
     match launch.state(){

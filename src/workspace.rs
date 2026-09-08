@@ -15,12 +15,13 @@ pub fn show(ui:&mut egui::Ui,w:&Widget,theme:&mut ThemePreset,auth:&AuthManager,
     let bare=matches!(w.action,Action::Heading|Action::Launch|Action::LibrarySearch|Action::CreateInstance|Action::Status);
     let padding=if bare{0.0}else{16.0};
     let fill=w.style.fill.map(crate::theme::color_arr).unwrap_or(if bare{egui::Color32::TRANSPARENT}else{look.surface(2)});
-    let frame=egui::Frame::none().fill(if w.action==Action::Launch{egui::Color32::TRANSPARENT}else{fill})
-        .rounding(w.style.rounding.unwrap_or(look.rounding)).inner_margin(padding);
-    let available=ui.available_size();
-    frame.show(ui,|ui|{
-        ui.set_min_size((available-vec2(padding*2.0,padding*2.0)).max(vec2(1.0,1.0)));
-        ui.set_max_size((available-vec2(padding*2.0,padding*2.0)).max(vec2(1.0,1.0)));
+    let rect=ui.max_rect();
+    if w.action!=Action::Launch{ui.painter().rect_filled(rect,w.style.rounding.unwrap_or(look.rounding),fill);}
+    let padding=if w.action==Action::Version{8.0}else{padding};
+    let inner=rect.shrink(padding);
+    let mut component=ui.new_child(egui::UiBuilder::new().id_salt(("component_body",w.id)).max_rect(inner));
+    component.set_clip_rect(inner.intersect(ui.clip_rect()));
+    component.scope(|ui|{
         if w.action==Action::Launch {
             if play::launch_button(ui,&look,w,play,launch){intent=Some(Intent::Launch);}
             return
@@ -44,7 +45,6 @@ pub fn show(ui:&mut egui::Ui,w:&Widget,theme:&mut ThemePreset,auth:&AuthManager,
                     ui.label(egui::RichText::new(if play.selected_instance.is_some(){"Сохранённая конфигурация · Vanilla"}else{"Быстрый запуск · Vanilla"}).size(12.0).color(look.text_tertiary()));
                 }
                 Action::Version=>{
-                    ui.label(egui::RichText::new(&w.label).size(12.0).color(look.text_tertiary()));
                     let vs=&look.modules.version_button;
                     let mut style=(**ui.style()).clone();
                     style.visuals.widgets.inactive.weak_bg_fill=vs.fill_or(look.surface(3));

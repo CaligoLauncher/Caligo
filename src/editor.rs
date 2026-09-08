@@ -88,8 +88,6 @@ impl Editor {
                                 self.change(|d|{d.add_widget(action);});ui.close_menu();
                             }
                         }
-                    });
-                    ui.menu_button("Компоненты",|ui|{
                         for &kind in Action::components(){
                             if ui.button(kind.label()).clicked(){
                                 let page=self.page;
@@ -101,10 +99,14 @@ impl Editor {
                     let undo=ui.add_enabled(self.history.can_undo()||self.gesture_before.is_some(),egui::Button::new("Назад"));
                     self.controls.push(("undo",undo.rect));
                     if undo.on_hover_text("Отменить · Ctrl+Z").clicked(){self.undo();}
-                    if ui.add_enabled(self.history.can_redo(),egui::Button::new("Вперёд")).on_hover_text("Повторить · Ctrl+Y").clicked(){self.redo();}
+                    let redo=ui.add_enabled(self.history.can_redo(),egui::Button::new("Вперёд"));
+                    self.controls.push(("redo",redo.rect));
+                    if redo.on_hover_text("Повторить · Ctrl+Y").clicked(){self.redo();}
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{
-                        if ui.button(egui::RichText::new("Готово").color(theme.accent_color())).clicked(){self.finish();}
-                        if ui.button("Отмена").on_hover_text("Отменить всю сессию").clicked(){self.cancel();}
+                        let finish=ui.button(egui::RichText::new("Готово").color(theme.accent_color()));
+                        self.controls.push(("finish",finish.rect));if finish.clicked(){self.finish();}
+                        let cancel=ui.button("Отмена");self.controls.push(("cancel",cancel.rect));
+                        if cancel.on_hover_text("Отменить всю сессию").clicked(){self.cancel();}
                     });
                 });
                 ui.horizontal(|ui|{
@@ -308,7 +310,13 @@ pub fn shell(&mut self,ctx:&egui::Context,layout:&Layout,theme:&ThemePreset,acti
                     let snap=!ctx.input(|i|i.modifiers.alt);
                     if d.kind==DragKind::Size {
                         let s=(d.rect.size()+(p-d.start)).clamp(vec2(44.0,44.0),vec2(1000.0,1000.0));
-                        if let Some(w)=self.document.widgets.iter_mut().find(|w|w.id==d.id){w.size=[s.x,s.y];}
+                        if let Some(w)=self.document.widgets.iter_mut().find(|w|w.id==d.id){
+                            if w.flow {
+                                let width=(layout.content.width()-40.0).max(1.0);
+                                w.span=((s.x+12.0)/(width+12.0)*12.0).round().clamp(1.0,12.0) as u8;
+                                w.size[1]=s.y;
+                            }else{w.size=[s.x,s.y];}
+                        }
                         if let Some(panel)=self.document.panels.iter_mut().find(|w|w.id==d.id){
                             let delta=p-d.start;
                             match panel.edge {
@@ -345,7 +353,7 @@ pub fn shell(&mut self,ctx:&egui::Context,layout:&Layout,theme:&ThemePreset,acti
     }
     fn inspector_ui(&mut self,ctx:&egui::Context,layout:&Layout,theme:&ThemePreset){
         if self.background_open {
-            egui::Window::new("Фон рабочего пространства").id(Id::new("composition_background_inspector")).order(egui::Order::Foreground).resizable(false).collapsible(false).default_width(250.0).show(ctx,|ui|{
+            egui::Window::new("Фон рабочего пространства").id(Id::new("composition_background_inspector")).order(egui::Order::Foreground).resizable(false).collapsible(false).default_width(250.0).constrain_to(layout.bounds.shrink(8.0)).vscroll(true).max_height((layout.bounds.height()-32.0).max(120.0)).show(ctx,|ui|{
                 let mut col=self.document.background.unwrap_or(theme.background);
                 if ui.color_edit_button_srgba_unmultiplied(&mut col).changed(){self.document.background=Some(col);}
                 if ui.button("Использовать фон темы").clicked(){self.document.background=None;}

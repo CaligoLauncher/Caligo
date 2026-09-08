@@ -264,6 +264,18 @@ fn visual_review_editor_screens(){
     }
 }
 #[test]
+fn toolbar_controls_do_not_overlap_at_minimum_width(){
+    let ctx=egui::Context::default();let mut app=CaligoApp::visual_fixture(&ctx,Tab::Home,false);app.editor.begin();
+    for _ in 0..4{
+        let _=ctx.run(egui::RawInput{screen_rect:Some(egui::Rect::from_min_size(egui::Pos2::ZERO,egui::vec2(720.0,440.0))),..Default::default()},|ctx|app.render(ctx));
+    }
+    let controls:Vec<_>=["add_panel","undo","redo","cancel","finish"].iter().map(|name|app.editor.controls.iter().find(|(s,_)|s==name).unwrap().1).collect();
+    for (i,a) in controls.iter().enumerate(){
+        assert!(a.left()>=0.0&&a.right()<=720.0);
+        for b in &controls[i+1..]{assert!(!a.intersects(*b),"toolbar controls overlap");}
+    }
+}
+#[test]
 fn workspace_components_are_real_independent_nodes(){
     use crate::composition::Action;
     let ctx=egui::Context::default();let mut app=CaligoApp::visual_fixture(&ctx,Tab::Home,true);

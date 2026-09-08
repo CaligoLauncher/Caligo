@@ -272,7 +272,8 @@ impl Document {
     pub fn add_content(&mut self,action:Action,page:Action,span:u8,height:f32)->NodeId {
         let id=self.add_widget(action);
         let w=self.widgets.last_mut().unwrap();
-        w.page=Some(page);w.flow=true;w.span=span;w.size=[320.0,height];
+        w.page=Some(page);w.flow=true;w.span=span;
+        w.size=[if matches!(action,Action::Appearance|Action::Atmosphere){360.0}else{180.0},height];
         id
     }
     pub fn add_default_content(&mut self) {
@@ -280,8 +281,8 @@ impl Document {
         for (page,action,span,height,label) in [
             (Home,Heading,12,48.0,"Главная"),
             (Home,Selection,12,84.0,"Выбрано для запуска"),
-            (Home,Version,8,88.0,"Версия Minecraft"),
-            (Home,Launch,4,88.0,"Играть"),
+            (Home,Version,8,56.0,"Версия Minecraft"),
+            (Home,Launch,4,56.0,"Играть"),
             (Home,Status,12,44.0,"Состояние игры"),
             (Home,LibraryList,8,208.0,"Мои сборки"),
             (Home,Account,4,208.0,"Профиль"),
@@ -315,7 +316,9 @@ pub fn flow_rects(widgets:&[Widget],bounds:Rect)->Vec<(NodeId,Rect)> {
     let mut y=bounds.top();let mut x=bounds.left();let mut used=0_u8;let mut row_h=0.0_f32;
     let mut out=Vec::new();
     for w in widgets {
-        let span=if narrow{12}else{w.span.clamp(1,12)};
+        let requested=w.span.clamp(1,12);
+        let desired=unit*requested as f32+gap*(requested-1) as f32;
+        let span=if narrow||desired<w.size[0].min(bounds.width()){12}else{requested};
         if used>0&&used+span>12 {y+=row_h+gap;x=bounds.left();used=0;row_h=0.0;}
         let width=if span==12{bounds.width()}else{unit*span as f32+gap*(span-1) as f32};
         out.push((w.id,Rect::from_min_size(pos2(x,y),vec2(width,w.size[1]))));

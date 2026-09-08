@@ -19,10 +19,10 @@ fn section(
     add_contents: impl FnOnce(&mut egui::Ui),
 ) {
     egui::Frame::none()
-        .fill(theme.card_fill())
+        .fill(egui::Color32::TRANSPARENT)
         .stroke(egui::Stroke::NONE)
         .rounding(egui::Rounding::same(10.0))
-        .inner_margin(egui::Margin::same(16.0))
+        .inner_margin(egui::Margin::same(0.0))
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             ui.label(
@@ -54,7 +54,7 @@ fn override_slider(
     range: std::ops::RangeInclusive<f32>,
 ) -> bool {
     let mut changed = false;
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         let mut on = value.is_some();
         if ui.checkbox(&mut on, label).changed() {
             *value = if on { Some(default) } else { None };
@@ -78,7 +78,7 @@ fn override_color(
     default: [u8; 4],
 ) -> bool {
     let mut changed = false;
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         let mut on = value.is_some();
         if ui.checkbox(&mut on, label).changed() {
             *value = if on { Some(default) } else { None };
@@ -204,7 +204,7 @@ pub fn show_component(ui:&mut egui::Ui,state:&mut SettingsState,theme:&mut Theme
                 "Базовые цвета и формы — их наследуют все модули",
                 |ui| {
                     changed |= ui.checkbox(&mut theme.dark, "Тёмная тема").changed();
-                    ui.horizontal(|ui| {
+                    ui.horizontal_wrapped(|ui| {
                         ui.label("Акцентный цвет");
                         let mut col = look.accent_color();
                         if ui.color_edit_button_srgba(&mut col).changed() {
@@ -212,7 +212,7 @@ pub fn show_component(ui:&mut egui::Ui,state:&mut SettingsState,theme:&mut Theme
                             changed = true;
                         }
                     });
-                    ui.horizontal(|ui| {
+                    ui.horizontal_wrapped(|ui| {
                         ui.label("Цвет фона панелей");
                         let mut col = color_arr(look.background);
                         if ui.color_edit_button_srgba(&mut col).changed() {
@@ -384,7 +384,7 @@ pub fn show_component(ui:&mut egui::Ui,state:&mut SettingsState,theme:&mut Theme
                 "Тема из JSON-пресета",
                 "Этот JSON содержит оформление, не расположение компонентов и не аккаунты.",
                 |ui| {
-                    ui.horizontal(|ui| {
+                    ui.horizontal_wrapped(|ui| {
                         if ui.button("Выгрузить текущую тему").clicked() {
                             state.theme_json = serde_json::to_string_pretty(&look)
                                 .unwrap_or_default();
