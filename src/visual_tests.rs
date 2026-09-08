@@ -104,3 +104,24 @@ fn visual_review_screens(){
         }
     }
 }
+
+#[test]
+fn sidebar_navigation_works_at_both_window_sizes() {
+    for (w,h) in [(1000.0,620.0),(720.0,440.0)] {
+        let ctx=egui::Context::default();
+        let mut app=CaligoApp::visual_fixture(&ctx,Tab::Home,false);
+        let screen=egui::Rect::from_min_size(egui::Pos2::ZERO,egui::vec2(w,h));
+        let frame=|app:&mut CaligoApp,events:Vec<egui::Event>|{
+            let _=ctx.run(egui::RawInput{screen_rect:Some(screen),events,..Default::default()},|ctx|app.render(ctx));
+        };
+        frame(&mut app,vec![]); frame(&mut app,vec![]);
+        let p=egui::pos2(33.0,138.0);
+        frame(&mut app,vec![egui::Event::PointerMoved(p),egui::Event::PointerButton{pos:p,button:egui::PointerButton::Primary,pressed:true,modifiers:egui::Modifiers::default()}]);
+        frame(&mut app,vec![egui::Event::PointerButton{pos:p,button:egui::PointerButton::Primary,pressed:false,modifiers:egui::Modifiers::default()}]);
+        assert_eq!(app.tab,Tab::Instances);
+        let p=egui::pos2(33.0,82.0);
+        frame(&mut app,vec![egui::Event::PointerMoved(p),egui::Event::PointerButton{pos:p,button:egui::PointerButton::Primary,pressed:true,modifiers:egui::Modifiers::default()}]);
+        frame(&mut app,vec![egui::Event::PointerButton{pos:p,button:egui::PointerButton::Primary,pressed:false,modifiers:egui::Modifiers::default()}]);
+        assert_eq!(app.tab,Tab::Home);
+    }
+}

@@ -113,29 +113,38 @@ pub fn show(ui:&mut egui::Ui,theme:&ThemePreset,state:&mut InstancesState,play:&
         }
         for (i,inst) in items{
             ui.push_id(("library_item",i),|ui|{
+                let selected=play.selected_instance.as_deref()==Some(inst.name.as_str());
+                let wide=ui.available_width()>=640.0;
                 egui::Frame::none().fill(theme.surface(2)).rounding(12.0).inner_margin(16.0).show(ui,|ui|{
                     ui.set_min_width(ui.available_width());
                     ui.horizontal(|ui|{
                         let (r,_)=ui.allocate_exact_size(vec2(42.0,42.0),egui::Sense::hover());
                         ui.painter().rect_filled(r,10.0,theme.surface(3));
-                        c::cube(ui.painter(),r.center(),12.0,theme.text_body());
+                        c::cube(ui.painter(),r.center(),12.0,if selected{theme.accent_color()}else{theme.text_body()});
                         ui.add_space(8.0);
-                        ui.vertical(|ui|{
+                        let text_w=(ui.available_width()-if wide{244.0}else{0.0}).max(80.0);
+                        ui.allocate_ui_with_layout(vec2(text_w,42.0),egui::Layout::top_down(egui::Align::Min),|ui|{
                             ui.add(egui::Label::new(egui::RichText::new(&inst.name).size(15.0).strong().color(theme.text_primary())).truncate());
-                            ui.label(egui::RichText::new(format!("Minecraft {} · Vanilla",inst.version)).size(12.0).color(theme.text_tertiary()));
+                            ui.label(egui::RichText::new(format!("Minecraft {} · Vanilla{}",inst.version,if selected{" · Выбрана"}else{""})).size(12.0).color(theme.text_tertiary()));
                         });
-                    });
-                    ui.add_space(12.0);
-                    ui.horizontal(|ui|{
-                        let selected=play.selected_instance.as_deref()==Some(inst.name.as_str());
-                        if c::button(ui,if selected{"К запуску"}else{"Выбрать"},vec2(112.0,40.0),theme,false).clicked(){
-                            play.selected_instance=Some(inst.name.clone());play.selected_version=Some(inst.version.clone());go_home=true;
-                        }
-                        if selected{ui.label(egui::RichText::new("Выбрана").size(12.0).color(theme.accent_color()));}
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{
+                        if wide {
+                            if c::button(ui,if selected{"К запуску"}else{"Выбрать"},vec2(112.0,40.0),theme,false).clicked(){
+                                play.selected_instance=Some(inst.name.clone());play.selected_version=Some(inst.version.clone());go_home=true;
+                            }
                             if c::button(ui,"Удалить",vec2(92.0,40.0),theme,false).clicked(){state.delete_name=Some(inst.name.clone());}
-                        });
+                        }
                     });
+                    if !wide {
+                        ui.add_space(12.0);
+                        ui.horizontal(|ui|{
+                            if c::button(ui,if selected{"К запуску"}else{"Выбрать"},vec2(112.0,40.0),theme,false).clicked(){
+                                play.selected_instance=Some(inst.name.clone());play.selected_version=Some(inst.version.clone());go_home=true;
+                            }
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{
+                                if c::button(ui,"Удалить",vec2(92.0,40.0),theme,false).clicked(){state.delete_name=Some(inst.name.clone());}
+                            });
+                        });
+                    }
                 });
                 ui.add_space(10.0);
             });
