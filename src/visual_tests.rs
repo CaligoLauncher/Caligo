@@ -126,7 +126,7 @@ fn sidebar_navigation_works_at_both_window_sizes() {
     }
 }
 
-use crate::composition::{Action,Edge,Position};
+use crate::composition::{Edge,Position};
 
 fn editor_frame(ctx:&egui::Context,app:&mut CaligoApp,events:Vec<egui::Event>){
     let _=ctx.run(egui::RawInput{screen_rect:Some(egui::Rect::from_min_size(egui::Pos2::ZERO,egui::vec2(1000.0,620.0))),events,..Default::default()},|ctx|app.render(ctx));

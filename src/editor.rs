@@ -189,8 +189,8 @@ impl Editor {
                     }
                 }
                 if self.selected==Some(*id){
-                    ui.painter().rect_stroke(r.shrink(1.0),6.0,Stroke::new(1.5,accent));
-                }else if response.hovered(){ui.painter().rect_stroke(r.shrink(1.0),4.0,Stroke::new(1.0,accent.gamma_multiply(0.5)));}
+                    ui.painter().rect_stroke(r.shrink(1.0),6.0,Stroke::new(1.5_f32,accent));
+                }else if response.hovered(){ui.painter().rect_stroke(r.shrink(1.0),4.0,Stroke::new(1.0_f32,accent.gamma_multiply(0.5)));}
             }
             if let Some(id)=self.selected {
                 if let Some((_,r))=widget_rects.iter().chain(panel_rects.iter()).find(|(i,_)|*i==id){
@@ -210,7 +210,7 @@ impl Editor {
                     let edge=near_edge(p,bounds);
                     let preview=panel_preview(edge,p,bounds);
                     ui.painter().rect_filled(preview,8.0,accent.gamma_multiply(0.16));
-                    ui.painter().rect_stroke(preview,8.0,Stroke::new(2.0,accent));
+                    ui.painter().rect_stroke(preview,8.0,Stroke::new(2.0_f32,accent));
                     if ctx.input(|i|i.pointer.primary_clicked()){
                         let pos=Position::from_rect(preview,bounds,true);
                         self.change(|d|{d.add_panel(edge,pos);});self.selected=self.document.panels.last().map(|p|p.id);self.adding=false;
@@ -224,18 +224,18 @@ impl Editor {
                     if d.kind==DragKind::Move {
                         if let Some((pid,r))=panel_rects.iter().rev().find(|(id,r)|*id!=d.id&&r.contains(p)){
                             if self.document.widgets.iter().any(|w|w.id==d.id){
-                                ui.painter().rect_stroke(r.shrink(3.0),6.0,Stroke::new(2.0,accent));
+                                ui.painter().rect_stroke(r.shrink(3.0),6.0,Stroke::new(2.0_f32,accent));
                                 let vertical=self.document.panels.iter().find(|x|x.id==*pid).is_some_and(|x|x.vertical);
                                 if let Some((_,target))=widget_rects.iter().filter(|(id,_)|*id!=d.id).find(|(id,r)|self.document.widgets.iter().any(|w|w.id==*id&&w.panel==Some(*pid))&&if vertical{p.y<r.center().y}else{p.x<r.center().x}){
                                     let (a,b)=if vertical{(target.left_top(),target.right_top())}else{(target.left_top(),target.left_bottom())};
-                                    ui.painter().line_segment([a,b],Stroke::new(3.0,accent));
+                                    ui.painter().line_segment([a,b],Stroke::new(3.0_f32,accent));
                                 }
                             }
                         }
                         if self.document.panels.iter().any(|x|x.id==d.id){ghost=panel_preview(near_edge(p,bounds),p,bounds);}
                     }
                     ui.painter().rect_filled(ghost,6.0,accent.gamma_multiply(0.16));
-                    ui.painter().rect_stroke(ghost,6.0,Stroke::new(2.0,accent));
+                    ui.painter().rect_stroke(ghost,6.0,Stroke::new(2.0_f32,accent));
                 }
             }
         });
@@ -244,7 +244,7 @@ impl Editor {
                 if let Some(p)=ctx.pointer_interact_pos().filter(|p|overlay_rect.contains(*p)){
                     let snap=!ctx.input(|i|i.modifiers.alt);
                     if d.kind==DragKind::Size {
-                        let s=(d.rect.size()+p-d.start).clamp(vec2(44.0,44.0),vec2(1000.0,1000.0));
+                        let s=(d.rect.size()+(p-d.start)).clamp(vec2(44.0,44.0),vec2(1000.0,1000.0));
                         if let Some(w)=self.document.widgets.iter_mut().find(|w|w.id==d.id){w.size=[s.x,s.y];}
                         if let Some(panel)=self.document.panels.iter_mut().find(|w|w.id==d.id){panel.size=[s.x,s.y];}
                     }else if let Some(panel)=self.document.panels.iter_mut().find(|w|w.id==d.id){
@@ -273,7 +273,7 @@ impl Editor {
     }
     fn inspector_ui(&mut self,ctx:&egui::Context,layout:&Layout,theme:&ThemePreset){
         if self.background_open {
-            egui::Window::new("Фон рабочего пространства").id(Id::new("composition_background_inspector")).resizable(false).collapsible(false).default_width(250.0).show(ctx,|ui|{
+            egui::Window::new("Фон рабочего пространства").id(Id::new("composition_background_inspector")).order(egui::Order::Foreground).resizable(false).collapsible(false).default_width(250.0).show(ctx,|ui|{
                 let mut col=self.document.background.unwrap_or(theme.background);
                 if ui.color_edit_button_srgba_unmultiplied(&mut col).changed(){self.document.background=Some(col);}
                 if ui.button("Использовать фон темы").clicked(){self.document.background=None;}
@@ -287,7 +287,7 @@ impl Editor {
         let rect=self.rects.iter().chain(self.panel_rects.iter()).find(|(i,_)|*i==id).map(|(_,r)|*r).unwrap_or(layout.content);
         let pos=pos2((rect.right()+12.0).min(layout.bounds.right()-280.0).max(layout.bounds.left()+8.0),(rect.top()+34.0).min(layout.bounds.bottom()-290.0).max(layout.bounds.top()));
         let mut remove=false;let mut parent_select=None;let mut close=false;
-        egui::Window::new(name).id(Id::new(("local_inspector",id))).fixed_pos(pos).default_width(252.0).resizable(false).collapsible(false).show(ctx,|ui|{
+        egui::Window::new(name).id(Id::new(("local_inspector",id))).order(egui::Order::Foreground).fixed_pos(pos).default_width(252.0).resizable(false).collapsible(false).show(ctx,|ui|{
             ui.label(egui::RichText::new("Только выбранный элемент").size(11.0).color(theme.text_tertiary()));
             if let Some(w)=self.document.widgets.iter_mut().find(|w|w.id==id){
                 if let Some(parent)=w.panel{if ui.small_button("Выбрать родительскую панель").clicked(){parent_select=Some(parent);}}
@@ -321,7 +321,7 @@ impl Editor {
     }
     fn show_error(&mut self,ctx:&egui::Context){
         if let Some(error)=self.error.clone(){
-            egui::Window::new("Интерфейс: требуется внимание").id(Id::new("layout_error")).collapsible(false).resizable(false).show(ctx,|ui|{
+            egui::Window::new("Интерфейс: требуется внимание").id(Id::new("layout_error")).order(egui::Order::Foreground).collapsible(false).resizable(false).show(ctx,|ui|{
                 ui.set_max_width(480.0);ui.label(error);
                 if ui.button("Закрыть сообщение").clicked(){self.error=None;}
             });
@@ -343,8 +343,8 @@ fn panel_preview(edge:Edge,p:Pos2,r:Rect)->Rect {
     }
 }
 fn gear_icon(p:&egui::Painter,c:Pos2,color:Color32){
-    p.circle_stroke(c,5.0,Stroke::new(1.5,color));p.circle_stroke(c,1.5,Stroke::new(1.2,color));
-    for i in 0..8 {let a=i as f32*std::f32::consts::TAU/8.0;let d=vec2(a.cos(),a.sin());p.line_segment([c+d*5.0,c+d*8.0],Stroke::new(2.0,color));}
+    p.circle_stroke(c,5.0,Stroke::new(1.5_f32,color));p.circle_stroke(c,1.5,Stroke::new(1.2_f32,color));
+    for i in 0..8 {let a=i as f32*std::f32::consts::TAU/8.0;let d=vec2(a.cos(),a.sin());p.line_segment([c+d*5.0,c+d*8.0],Stroke::new(2.0_f32,color));}
 }
 fn anchor_ui(ui:&mut egui::Ui,p:&mut Position){
     egui::ComboBox::from_id_salt("anchor").selected_text(match p.anchor{Anchor::TopLeft=>"Слева сверху",Anchor::TopRight=>"Справа сверху",Anchor::BottomLeft=>"Слева снизу",Anchor::BottomRight=>"Справа снизу"}).show_ui(ui,|ui|{
