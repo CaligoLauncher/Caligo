@@ -51,7 +51,13 @@ impl Editor {
             Err(e)=>{self.error=Some(format!("Не сохранено: {e}"));false}
         }
     }
+    fn settle_local_edit(&mut self){
+        if let Some(before)=self.gesture_before.take(){self.history.record(before,&self.document);}
+    }
+    fn undo(&mut self){self.settle_local_edit();self.history.undo(&mut self.document);}
+    fn redo(&mut self){self.settle_local_edit();self.history.redo(&mut self.document);}
     fn change(&mut self,f:impl FnOnce(&mut Document)){
+        self.settle_local_edit();
         let before=self.document.clone();f(&mut self.document);
         if let Err(e)=self.document.validate(){self.document=before;self.error=Some(e)}
         else{self.history.record(before,&self.document)}
@@ -61,8 +67,8 @@ impl Editor {
         if !self.active(){return}
         // No state-mutating keyboard shortcut is active outside edit mode.
         if !ctx.wants_keyboard_input(){
-            if ctx.input_mut(|i|i.consume_key(egui::Modifiers::CTRL,egui::Key::Z)){self.history.undo(&mut self.document);}
-            if ctx.input_mut(|i|i.consume_key(egui::Modifiers::CTRL,egui::Key::Y)){self.history.redo(&mut self.document);}
+            if ctx.input_mut(|i|i.consume_key(egui::Modifiers::CTRL,egui::Key::Z)){self.undo();}
+            if ctx.input_mut(|i|i.consume_key(egui::Modifiers::CTRL,egui::Key::Y)){self.redo();}
             if ctx.input(|i|i.key_pressed(egui::Key::Escape)){
                 if let Some(d)=self.drag.take(){self.document=d.before;}else{self.adding=false;self.inspector=false;self.background_open=false;}
             }
@@ -84,10 +90,10 @@ impl Editor {
                         }
                     });
                     if ui.button("Фон").clicked(){self.background_open=!self.background_open;self.inspector=false;}
-                    let undo=ui.add_enabled(self.history.can_undo(),egui::Button::new("Назад"));
+                    let undo=ui.add_enabled(self.history.can_undo()||self.gesture_before.is_some(),egui::Button::new("Назад"));
                     self.controls.push(("undo",undo.rect));
-                    if undo.on_hover_text("Отменить · Ctrl+Z").clicked(){self.history.undo(&mut self.document);}
-                    if ui.add_enabled(self.history.can_redo(),egui::Button::new("Вперёд")).on_hover_text("Повторить · Ctrl+Y").clicked(){self.history.redo(&mut self.document);}
+                    if undo.on_hover_text("Отменить · Ctrl+Z").clicked(){self.undo();}
+                    if ui.add_enabled(self.history.can_redo(),egui::Button::new("Вперёд")).on_hover_text("Повторить · Ctrl+Y").clicked(){self.redo();}
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{
                         if ui.button(egui::RichText::new("Готово").color(theme.accent_color())).clicked(){self.finish();}
                         if ui.button("Отмена").on_hover_text("Отменить всю сессию").clicked(){self.cancel();}
@@ -184,6 +190,7 @@ impl Editor {
                 if response.clicked(){self.selected=Some(*id);self.inspector=false;}
                 if response.drag_started(){
                     if let Some(start)=ctx.input(|i|i.pointer.press_origin()){
+                        self.settle_local_edit();
                         self.selected=Some(*id);self.inspector=false;
                         self.drag=Some(Drag{id:*id,kind:DragKind::Move,start,rect:*r,before:self.document.clone()});
                     }
@@ -212,7 +219,7 @@ impl Editor {
                     self.controls.push(("resize",handle));
                     let cursor=match edge{Edge::Left|Edge::Right=>egui::CursorIcon::ResizeHorizontal,Edge::Top|Edge::Bottom=>egui::CursorIcon::ResizeVertical,_=>egui::CursorIcon::ResizeNwSe};
                     let h=ui.interact(handle,Id::new("resize_handle"),Sense::drag()).on_hover_cursor(cursor);
-                    if h.drag_started(){if let Some(start)=ctx.input(|i|i.pointer.press_origin()){self.drag=Some(Drag{id,kind:DragKind::Size,start,rect:*r,before:self.document.clone()});}}
+                    if h.drag_started(){if let Some(start)=ctx.input(|i|i.pointer.press_origin()){self.settle_local_edit();self.drag=Some(Drag{id,kind:DragKind::Size,start,rect:*r,before:self.document.clone()});}}
                 }
             }
             if self.adding {
@@ -315,7 +322,7 @@ impl Editor {
         let rect=self.rects.iter().chain(self.panel_rects.iter()).find(|(i,_)|*i==id).map(|(_,r)|*r).unwrap_or(layout.content);
         let pos=pos2((rect.right()+12.0).min(layout.bounds.right()-280.0).max(layout.bounds.left()+8.0),(rect.top()+34.0).min(layout.bounds.bottom()-290.0).max(layout.bounds.top()));
         let mut remove=false;let mut parent_select=None;let mut close=false;
-        let window=egui::Window::new(name.clone()).id(Id::new(("local_inspector",id))).order(egui::Order::Foreground).fixed_pos(pos).default_width(252.0).resizable(false).collapsible(false).title_bar(false).constrain_to(layout.bounds.shrink(8.0)).max_height((layout.bounds.height()-32.0).max(120.0)).vscroll(true).show(ctx,|ui|{
+        let window=egui::Window::new(name.clone()).id(Id::new(("local_inspector",id))).order(egui::Order::Foreground).fixed_pos(pos).default_width(252.0).default_height(0.0).min_height(0.0).resizable(false).collapsible(false).title_bar(false).constrain_to(layout.bounds.shrink(8.0)).max_height((layout.bounds.height()-32.0).max(120.0)).vscroll(true).show(ctx,|ui|{
             ui.label(egui::RichText::new(name).size(15.0).strong());
             ui.label(egui::RichText::new("Только выбранный элемент").size(11.0).color(theme.text_tertiary()));
             if let Some(w)=self.document.widgets.iter_mut().find(|w|w.id==id){
@@ -388,4 +395,22 @@ fn anchor_ui(ui:&mut egui::Ui,p:&mut Position){
 #[cfg(test)]
 impl Editor {
     pub fn test_select(&mut self,id:NodeId){self.selected=Some(id);self.inspector=true;}
+}
+#[cfg(test)]
+mod transaction_tests {
+    use super::*;
+    #[test]
+    fn pending_text_edit_undo_does_not_eat_previous_operation(){
+        let mut e=Editor::default();e.begin();
+        e.change(|d|{d.add_panel(Edge::Top,Position::default());});
+        let before=e.document.clone();
+        e.gesture_before=Some(before.clone());
+        e.document.widgets[1].label="Мои сборки".into();
+        e.undo();
+        assert_eq!(e.document,before);
+        assert_eq!(e.document.panels.len(),2);
+        e.redo();assert_eq!(e.document.widgets[1].label,"Мои сборки");
+        e.cancel();assert_eq!(e.document,Document::default());
+        assert!(!e.history.can_undo());assert!(!e.history.can_redo());
+    }
 }
