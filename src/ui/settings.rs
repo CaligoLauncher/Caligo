@@ -187,17 +187,7 @@ fn rgba(c: egui::Color32) -> [u8; 4] {
     [c.r(), c.g(), c.b(), c.a()]
 }
 
-pub fn show(ui: &mut egui::Ui, state: &mut SettingsState, theme: &mut ThemePreset) {
-    super::components::page_title(ui,"Настройки","Оформление, модули и переносимые темы",theme);
-    ui.horizontal_wrapped(|ui| {
-        for (i,name) in ["Оформление","Модули","JSON-пресет"].iter().enumerate() {
-            if ui.add_sized([120.0,40.0],egui::SelectableLabel::new(state.category==i,*name)).clicked() {
-                state.category=i;
-            }
-        }
-    });
-    ui.add_space(16.0);
-
+pub fn show_component(ui:&mut egui::Ui,state:&mut SettingsState,theme:&mut ThemePreset,category:usize) {
     // Снимок темы для отрисовки карточек и значений по умолчанию,
     // пока саму тему правят контролы.
     let look = theme.clone();
@@ -206,7 +196,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut SettingsState, theme: &mut ThemePrese
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            if state.category == 0 {
+            if category == 0 {
             section(
                 ui,
                 &look,
@@ -246,12 +236,12 @@ pub fn show(ui: &mut egui::Ui, state: &mut SettingsState, theme: &mut ThemePrese
             );
 
             }
-            if state.category == 1 {
+            if category == 1 {
             section(
                 ui,
                 &look,
-                "Модули интерфейса",
-                "Каждый модуль можно расширять и менять его углы, цвет, прозрачность и бортики",
+                "Совместимость старых тем",
+                "Общие значения старого JSON. Локальные стили компонентов имеют приоритет; геометрия меняется в редакторе.",
                 |ui| {
                     changed |= module_editor(
                         ui,
@@ -335,7 +325,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut SettingsState, theme: &mut ThemePrese
             );
 
             }
-            if state.category == 0 {
+            if category == 3 {
             section(
                 ui,
                 &look,
@@ -387,12 +377,12 @@ pub fn show(ui: &mut egui::Ui, state: &mut SettingsState, theme: &mut ThemePrese
             );
 
             }
-            if state.category == 2 {
+            if category == 2 {
             section(
                 ui,
                 &look,
                 "Тема из JSON-пресета",
-                "Пресет — один файл со всеми настройками, им можно делиться",
+                "Этот JSON содержит оформление, не расположение компонентов и не аккаунты.",
                 |ui| {
                     ui.horizontal(|ui| {
                         if ui.button("Выгрузить текущую тему").clicked() {
@@ -400,7 +390,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut SettingsState, theme: &mut ThemePrese
                                 .unwrap_or_default();
                             state.theme_error = None;
                         }
-                        if ui.button("Сбросить всё").clicked() {
+                        if ui.button("Сбросить тему").clicked() {
                             *theme = ThemePreset::default();
                             changed = true;
                             state.theme_error = None;

@@ -60,102 +60,81 @@ fn remove(inst:&Instance)->Result<(),String>{
     std::fs::remove_file(instances_dir().join(format!("{}.json",sanitize(&inst.name)))).map_err(|e|format!("Удаление: {e}"))
 }
 
-pub fn compact_row(ui:&mut egui::Ui,theme:&ThemePreset,inst:&Instance,selected:bool,index:usize)->egui::Response{
-    ui.push_id(("compact",index),|ui|{
-        let (r,response)=ui.allocate_exact_size(vec2(ui.available_width(),64.0),egui::Sense::click());
-        let fill=if response.hovered()||selected{theme.surface(3)}else{theme.surface(2)};
-        ui.painter().rect_filled(r,10.0,fill);
-        c::cube(ui.painter(),pos2(r.left()+28.0,r.center().y),10.0,if selected{theme.accent_color()}else{theme.text_body()});
-        c::label(ui.painter(),Rect::from_min_size(r.min+vec2(52.0,8.0),vec2((r.width()-158.0).max(20.0),24.0)),&inst.name,14.0,theme.text_primary());
-        c::label(ui.painter(),Rect::from_min_size(r.min+vec2(52.0,33.0),vec2((r.width()-158.0).max(20.0),20.0)),&format!("Minecraft {} · Vanilla",inst.version),12.0,theme.text_tertiary());
-        c::label(ui.painter(),Rect::from_min_size(pos2(r.right()-92.0,r.center().y-12.0),vec2(74.0,24.0)),if selected{"Выбрана"}else{"Выбрать"},12.0,if selected{theme.accent_color()}else{theme.text_body()});
-        response.on_hover_cursor(egui::CursorIcon::PointingHand)
-    }).inner
+/// Selection only; launching is a separate explicit action.
+pub fn search(ui:&mut egui::Ui,state:&mut InstancesState) {
+    ui.add_sized([ui.available_width(),36.0],egui::TextEdit::singleline(&mut state.search).hint_text("Найти сборку…"));
 }
-
-pub fn show(ui:&mut egui::Ui,theme:&ThemePreset,state:&mut InstancesState,play:&mut PlayState,launch:&LaunchManager)->bool {
-    state.ensure_loaded();
-    launch.ensure_versions(ui.ctx().clone());
-    c::page_title(ui,"Сборки","Твоя библиотека версий Minecraft",theme);
+pub fn request_create(state:&mut InstancesState){state.creating=true;state.error=None;}
+pub fn list(ui:&mut egui::Ui,theme:&ThemePreset,state:&mut InstancesState,play:&mut PlayState,compact:bool)->bool {
     let mut go_home=false;
-    ui.horizontal(|ui|{
-        let w=(ui.available_width()-164.0).max(100.0);
-        ui.add_sized(vec2(w,40.0),egui::TextEdit::singleline(&mut state.search).hint_text("Найти сборку…"));
-        if c::button(ui,"Создать сборку",vec2(148.0,40.0),theme,true).clicked(){state.creating=true;state.error=None;}
-    });
-    ui.add_space(16.0);
-    if let Some(err)=&state.error{ui.colored_label(egui::Color32::from_rgb(238,145,153),err);ui.add_space(8.0);}
-    egui::ScrollArea::vertical().id_salt("library_scroll").auto_shrink([false,false]).show(ui,|ui|{
-        if state.creating {create_form(ui,theme,state,play,launch);ui.add_space(16.0);}
-        if let Some(name)=state.delete_name.clone(){
-            egui::Frame::none().fill(theme.surface(3)).inner_margin(16.0).rounding(10.0).show(ui,|ui|{
-                ui.label(egui::RichText::new(format!("Удалить «{name}»?")).strong());
-                ui.label("Будет удалена только запись сборки. Файлы игры останутся.");
-                ui.add_space(8.0);
+    let search=if compact{String::new()}else{state.search.to_lowercase()};
+    let items:Vec<_>=state.instances.iter().filter(|x|x.name.to_lowercase().contains(&search)||x.version.to_lowercase().contains(&search)).cloned().collect();
+    if items.is_empty(){
+        ui.add_space(8.0);
+        ui.label(egui::RichText::new(if state.instances.is_empty(){"Нет сохранённых сборок"}else{"Ничего не найдено"}).strong());
+        ui.label(egui::RichText::new(if state.instances.is_empty(){"Сохрани имя и версию, чтобы быстро вернуться к ним."}else{"Попробуй другое имя или версию."}).size(12.0).color(theme.text_tertiary()));
+        if state.instances.is_empty()&&ui.button("Создать сборку").clicked(){request_create(state);}
+    }
+    for (i,inst) in items.iter().enumerate(){
+        ui.push_id(("instance",i),|ui|{
+            let selected=play.selected_instance.as_deref()==Some(inst.name.as_str());
+            let width=ui.available_width();
+            let (r,response)=ui.allocate_exact_size(vec2(width,60.0),egui::Sense::click());
+            let fill=if response.hovered()||selected{theme.surface(3)}else{egui::Color32::TRANSPARENT};
+            ui.painter().rect_filled(r,6.0,fill);
+            c::cube(ui.painter(),pos2(r.left()+20.0,r.center().y),9.0,if selected{theme.accent_color()}else{theme.text_tertiary()});
+            c::label(ui.painter(),Rect::from_min_size(r.min+vec2(42.0,6.0),vec2((width-84.0).max(1.0),24.0)),&inst.name,14.0,theme.text_primary());
+            c::label(ui.painter(),Rect::from_min_size(r.min+vec2(42.0,30.0),vec2((width-52.0).max(1.0),22.0)),&format!("{} · Vanilla{}",inst.version,if selected{" · Выбрана"}else{""}),12.0,theme.text_tertiary());
+            if response.clicked(){
+                play.selected_instance=Some(inst.name.clone());play.selected_version=Some(inst.version.clone());
+                go_home=!compact;
+            }
+            response.context_menu(|ui|{
+                if ui.button("Выбрать для запуска").clicked(){play.selected_instance=Some(inst.name.clone());play.selected_version=Some(inst.version.clone());go_home=!compact;ui.close_menu();}
+                if ui.button("Удалить запись…").clicked(){state.delete_name=Some(inst.name.clone());ui.close_menu();}
+            });
+            if !compact {
+                let mr=Rect::from_min_size(pos2(r.right()-34.0,r.top()+6.0),vec2(30.0,28.0));
+                let mut menu=ui.new_child(egui::UiBuilder::new().id_salt("row_menu").max_rect(mr));
+                menu.menu_button("…",|ui|{
+                    if ui.button("Удалить запись…").clicked(){state.delete_name=Some(inst.name.clone());ui.close_menu();}
+                });
+            }
+            ui.add_space(4.0);
+        });
+    }
+    go_home
+}
+pub fn dialogs(ctx:&egui::Context,theme:&ThemePreset,state:&mut InstancesState,play:&mut PlayState,launch:&LaunchManager){
+    if state.creating {
+        egui::Window::new("Новая сборка").id(egui::Id::new("create_instance")).order(egui::Order::Foreground)
+            .collapsible(false).resizable(false).default_width(400.0)
+            .constrain_to(ctx.screen_rect().shrink(12.0)).max_height((ctx.screen_rect().height()-100.0).max(200.0)).vscroll(true).show(ctx,|ui|{
+                create_form(ui,theme,state,play,launch);
+                if let Some(err)=&state.error{ui.colored_label(egui::Color32::from_rgb(240,145,145),err);}
+                ui.label(egui::RichText::new("Сохраняются имя и версия. Игровая папка пока общая; моды и загрузчики не добавляются.").size(12.0).color(theme.text_tertiary()));
+            });
+    }
+    if let Some(name)=state.delete_name.clone(){
+        egui::Window::new("Удалить запись сборки?").id(egui::Id::new("delete_instance")).order(egui::Order::Foreground)
+            .collapsible(false).resizable(false).default_width(360.0).constrain_to(ctx.screen_rect().shrink(12.0)).show(ctx,|ui|{
+                ui.label(egui::RichText::new(&name).strong());
+                ui.label("Удалится только JSON-запись. Файлы Minecraft останутся.");
                 ui.horizontal(|ui|{
-                    if c::button(ui,"Удалить запись",vec2(148.0,40.0),theme,false).clicked(){
+                    if ui.button("Удалить запись").clicked(){
                         if let Some(i)=state.instances.iter().position(|x|x.name==name){
                             match remove(&state.instances[i]){
-                                Ok(())=>{state.instances.remove(i);if play.selected_instance.as_deref()==Some(name.as_str()){play.selected_instance=None;}state.delete_name=None;}
+                                Ok(())=>{state.instances.remove(i);if play.selected_instance.as_deref()==Some(name.as_str()){play.selected_instance=None;}state.delete_name=None;state.error=None;}
                                 Err(e)=>state.error=Some(e),
                             }
                         }
                     }
-                    if c::button(ui,"Отмена",vec2(100.0,40.0),theme,false).clicked(){state.delete_name=None;}
+                    if ui.button("Отмена").clicked(){state.delete_name=None;state.error=None;}
                 });
+                if let Some(err)=&state.error{ui.colored_label(egui::Color32::from_rgb(240,145,145),err);}
             });
-            ui.add_space(12.0);
-        }
-        let search=state.search.to_lowercase();
-        let items:Vec<_>=state.instances.iter().enumerate().filter(|(_,x)|x.name.to_lowercase().contains(&search)||x.version.to_lowercase().contains(&search)).map(|(i,x)|(i,x.clone())).collect();
-        if items.is_empty(){
-            c::empty(ui,if state.instances.is_empty(){"Здесь будут твои сборки"}else{"Ничего не найдено"},if state.instances.is_empty(){"Создай первую сборку: дай ей имя и выбери версию игры."}else{"Попробуй другое имя или версию Minecraft."},theme);
-        }
-        for (i,inst) in items{
-            ui.push_id(("library_item",i),|ui|{
-                let selected=play.selected_instance.as_deref()==Some(inst.name.as_str());
-                let wide=ui.available_width()>=640.0;
-                egui::Frame::none().fill(theme.surface(2)).rounding(12.0).inner_margin(16.0).show(ui,|ui|{
-                    ui.set_min_width(ui.available_width());
-                    ui.horizontal(|ui|{
-                        let (r,_)=ui.allocate_exact_size(vec2(42.0,42.0),egui::Sense::hover());
-                        ui.painter().rect_filled(r,10.0,theme.surface(3));
-                        c::cube(ui.painter(),r.center(),12.0,if selected{theme.accent_color()}else{theme.text_body()});
-                        ui.add_space(8.0);
-                        let text_w=(ui.available_width()-if wide{244.0}else{0.0}).max(80.0);
-                        ui.allocate_ui_with_layout(vec2(text_w,42.0),egui::Layout::top_down(egui::Align::Min),|ui|{
-                            ui.set_min_width(text_w);
-                            ui.add(egui::Label::new(egui::RichText::new(&inst.name).size(15.0).strong().color(theme.text_primary())).truncate());
-                            ui.label(egui::RichText::new(format!("Minecraft {} · Vanilla{}",inst.version,if selected{" · Выбрана"}else{""})).size(12.0).color(theme.text_tertiary()));
-                        });
-                        if wide {
-                            if c::button(ui,if selected{"К запуску"}else{"Выбрать"},vec2(112.0,40.0),theme,false).clicked(){
-                                play.selected_instance=Some(inst.name.clone());play.selected_version=Some(inst.version.clone());go_home=true;
-                            }
-                            if c::button(ui,"Удалить",vec2(92.0,40.0),theme,false).clicked(){state.delete_name=Some(inst.name.clone());}
-                        }
-                    });
-                    if !wide {
-                        ui.add_space(12.0);
-                        ui.horizontal(|ui|{
-                            if c::button(ui,if selected{"К запуску"}else{"Выбрать"},vec2(112.0,40.0),theme,false).clicked(){
-                                play.selected_instance=Some(inst.name.clone());play.selected_version=Some(inst.version.clone());go_home=true;
-                            }
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{
-                                if c::button(ui,"Удалить",vec2(92.0,40.0),theme,false).clicked(){state.delete_name=Some(inst.name.clone());}
-                            });
-                        });
-                    }
-                });
-                ui.add_space(10.0);
-            });
-        }
-        ui.add_space(12.0);
-        ui.label(egui::RichText::new("Пока сборка хранит имя и версию. Изолированные папки, моды и загрузчики ещё не реализованы.").size(12.0).color(theme.text_tertiary()));
-    });
-    go_home
+    }
 }
-
 fn create_form(ui:&mut egui::Ui,theme:&ThemePreset,state:&mut InstancesState,play:&mut PlayState,launch:&LaunchManager){
     egui::Frame::none().fill(theme.surface(3)).stroke(Stroke::new(1.0_f32,theme.surface(4))).rounding(12.0).inner_margin(20.0).show(ui,|ui|{
         ui.label(egui::RichText::new("Новая сборка").size(18.0).strong());

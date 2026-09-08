@@ -5,7 +5,7 @@ use crate::effects::Mist;
 use crate::launch::LaunchManager;
 use crate::skin::{self,SkinManager};
 use crate::theme::ThemePreset;
-use crate::ui::{self,components as c};
+use crate::ui;
 
 const TITLEBAR_H:f32=48.0;
 const PROFILE_W:f32=280.0;
@@ -48,7 +48,7 @@ impl CaligoApp{
     }
     fn with_context(ctx:&egui::Context)->Self{
         install_fonts(ctx);
-        let theme=ThemePreset::default();theme.apply(ctx);
+        let mut theme=ThemePreset::default();theme.modules.mist=false;theme.modules.background.vignette=0.0;theme.apply(ctx);
         Self{tab:Tab::Home,theme,settings:Default::default(),auth:Default::default(),launch:Default::default(),play:Default::default(),instances:Default::default(),skin:Default::default(),background:Background::load(ctx),mist:Mist::new(),profile_open:false,visual_test:false,editor:Default::default()}
     }
     fn skin_key(&self)->Option<String>{
@@ -58,49 +58,40 @@ impl CaligoApp{
         }
     }
     pub fn render(&mut self,ctx:&egui::Context){
-        if ctx.input_mut(|i|i.consume_key(egui::Modifiers::CTRL|egui::Modifiers::SHIFT,egui::Key::E)){
-            self.editor.begin();self.profile_open=false;
-        }
+        let active=match self.tab{Tab::Home=>crate::composition::Action::Home,Tab::Instances=>crate::composition::Action::Library,Tab::Settings=>crate::composition::Action::Settings};
+        if !self.editor.active(){self.editor.page=active;}
+        if ctx.input_mut(|i|i.consume_key(egui::Modifiers::CTRL|egui::Modifiers::SHIFT,egui::Key::E)){self.editor.begin();self.profile_open=false;}
         if let Some(c)=self.editor.document.background {
-            ctx.layer_painter(egui::LayerId::background()).rect_filled(ctx.screen_rect(),0.0,egui::Color32::from_rgba_unmultiplied(c[0],c[1],c[2],c[3]));
+            ctx.layer_painter(egui::LayerId::background()).rect_filled(ctx.screen_rect(),0.0,crate::theme::color_arr(c));
         }else{self.background.paint(ctx,&self.theme,&[]);}
         if !self.visual_test{self.skin.ensure(ctx,self.skin_key());}
-        let small=ctx.screen_rect().width()<880.0;
-        self.titlebar(ctx,if small{68.0}else{184.0});
+        self.launch.ensure_versions(ctx.clone());self.instances.ensure_loaded();
+        self.titlebar(ctx,76.0);
         self.editor.toolbar(ctx,&self.theme);
-        if self.editor.active(){self.profile_open=false;}
-        let layout=self.editor.layout(ctx.available_rect());
         let editing=self.editor.active();
-        let pad=if small{18.0}else{28.0};
-        let tc=&self.theme.modules.tab_card;
-        let mut frame=egui::Frame::none().inner_margin(egui::Margin::same(pad));
-        if tc.is_custom(){frame=frame.fill(tc.fill_or(egui::Color32::TRANSPARENT)).rounding(tc.rounding_or(0.0)).stroke(tc.border_or(Stroke::NONE));}
-        egui::CentralPanel::default().frame(egui::Frame::none()).show(ctx,|ui|{
-            let mut page=ui.new_child(egui::UiBuilder::new().id_salt("composition_page").max_rect(layout.content));
-            page.set_clip_rect(layout.content);
-            // Defense in depth: the functional page never receives edit gestures.
-            page.add_enabled_ui(!editing,|ui|{
-                frame.show(ui,|ui|{
-                    ui.set_min_size((layout.content.size()-vec2(pad*2.0,pad*2.0)).max(vec2(1.0,1.0)));
-                    match self.tab{
-                        Tab::Home=>{
-                            if let Some(action)=ui::play::show(ui,&self.theme,&self.auth,&mut self.play,&self.launch,&self.skin,&mut self.instances){
-                                if !editing{match action{
-                                    ui::play::HomeAction::Library=>self.tab=Tab::Instances,
-                                    ui::play::HomeAction::Create=>{self.instances.creating=true;self.tab=Tab::Instances;}
-                                    ui::play::HomeAction::Profile=>self.profile_open=true,
-                                }}
-                            }
-                        }
-                        Tab::Instances=>{if ui::instances::show(ui,&self.theme,&mut self.instances,&mut self.play,&self.launch)&&!editing{self.tab=Tab::Home;}}
-                        Tab::Settings=>ui::settings::show(ui,&mut self.settings,&mut self.theme),
-                    }
-                });
-            });
+        if editing{self.profile_open=false;}
+        let active=if editing{self.editor.page}else{active};
+        let layout=self.editor.layout(ctx.available_rect());
+        let look=self.theme.clone();
+        let mut intents=Vec::new();
+        let action=self.editor.shell(ctx,&layout,&look,active,|ui,w|{
+            if let Some(intent)=crate::workspace::show(ui,w,&mut self.theme,&self.auth,&mut self.play,&self.launch,&self.skin,&mut self.instances,&mut self.settings){
+                intents.push(intent);
+            }
         });
-        let active=match self.tab{Tab::Home=>crate::composition::Action::Home,Tab::Instances=>crate::composition::Action::Library,Tab::Settings=>crate::composition::Action::Settings};
-        if let Some(action)=self.editor.shell(ctx,&layout,&self.theme,active){
-            self.dispatch_shell_action(action);
+        if !editing {
+            if let Some(action)=action {self.dispatch_shell_action(action);}
+            for intent in intents {match intent{
+                crate::workspace::Intent::Launch=>{
+                    if let Some(version)=ui::play::selected_version(&self.play,&self.launch){
+                        self.launch.launch(ctx.clone(),version,ui::play::profile_for(&self.auth,&self.play));
+                    }
+                }
+                crate::workspace::Intent::Profile=>self.profile_open=true,
+                crate::workspace::Intent::Home=>self.tab=Tab::Home,
+                crate::workspace::Intent::Create=>ui::instances::request_create(&mut self.instances),
+            }}
+            ui::instances::dialogs(ctx,&self.theme,&mut self.instances,&mut self.play,&self.launch);
         }
         if self.theme.modules.mist&&!self.visual_test&&!editing{self.mist.paint(ctx,self.theme.accent_color());}
         self.editor.overlay(ctx,&layout,&self.theme);
@@ -112,6 +103,7 @@ impl CaligoApp{
             crate::composition::Action::Library=>self.tab=Tab::Instances,
             crate::composition::Action::Settings=>self.tab=Tab::Settings,
             crate::composition::Action::Profile=>self.profile_open=true,
+            _=>{}
         }
     }
     fn titlebar(&mut self,ctx:&egui::Context,sb_w:f32){
@@ -155,6 +147,7 @@ impl CaligoApp{
         let area=egui::Area::new(egui::Id::new("profile_popup")).fixed_pos(pos).order(egui::Order::Foreground).show(ctx,|ui|{
             egui::Frame::none().fill(self.theme.surface(2)).rounding(12.0).stroke(Stroke::new(1.0_f32,self.theme.surface(4))).inner_margin(20.0).show(ui,|ui|{
                 ui.set_width(PROFILE_W-40.0);
+                egui::ScrollArea::vertical().max_height((ctx.screen_rect().height()-120.0).max(160.0)).show(ui,|ui|{
                 profile_window(ui,self.theme.accent_color(),&self.auth,&mut self.play,&self.skin);
                 if self.skin.loading(){ui.label("Загрузка скина…");}
                 if let Some(error)=self.skin.error(){ui.label(egui::RichText::new(format!("Скин недоступен: {error}")).size(12.0));}
@@ -162,6 +155,7 @@ impl CaligoApp{
                     let (r,_)=ui.allocate_exact_size(vec2(PROFILE_W-40.0,160.0),egui::Sense::hover());
                     skin::paint_paperdoll(ui.painter(),r,self.skin.texture().as_ref(),None,self.theme.accent_color(),0.0);
                 }
+                });
             });
         });
         let outside=ctx.input(|i|i.pointer.any_pressed())&&ctx.input(|i|i.pointer.interact_pos()).is_some_and(|p|!area.response.rect.contains(p)&&!anchor.contains(p));

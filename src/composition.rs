@@ -5,12 +5,12 @@ use serde::{Deserialize,Serialize};
 use std::{collections::HashSet,fs,io::{Read,Write},path::Path};
 
 pub type NodeId=u64;
-pub const VERSION:u32=1;
+pub const VERSION:u32=2;
 const MAX_BYTES:u64=256*1024;
-#[derive(Clone,Copy,Debug,Serialize,Deserialize,PartialEq,Eq)]
-pub enum Action { Home,Library,Settings,Profile }
+#[derive(Clone,Copy,Debug,Serialize,Deserialize,PartialEq,Eq,Hash)]
+pub enum Action { Home,Library,Settings,Profile,Heading,Selection,Version,Launch,Status,LibrarySearch,CreateInstance,LibraryList,Account,Appearance,Atmosphere,ThemeJson,LegacyStyles }
 impl Action {
-    pub fn label(self)->&'static str {match self {Self::Home=>"Главная",Self::Library=>"Сборки",Self::Settings=>"Настройки",Self::Profile=>"Профиль"}}
+    pub fn label(self)->&'static str {match self {Self::Home=>"Главная",Self::Library=>"Сборки",Self::Settings=>"Настройки",Self::Profile=>"Профиль",Self::Heading=>"Заголовок",Self::Selection=>"Выбранная сборка",Self::Version=>"Версия Minecraft",Self::Launch=>"Играть",Self::Status=>"Состояние игры",Self::LibrarySearch=>"Поиск сборок",Self::CreateInstance=>"Создать сборку",Self::LibraryList=>"Список сборок",Self::Account=>"Аккаунт и скин",Self::Appearance=>"Оформление",Self::Atmosphere=>"Фон и атмосфера",Self::ThemeJson=>"JSON-тема",Self::LegacyStyles=>"Совместимость тем"}}
 }
 #[derive(Clone,Copy,Debug,Serialize,Deserialize,PartialEq,Eq)]
 pub enum Edge { Left,Right,Top,Bottom,Float }
@@ -52,6 +52,9 @@ pub struct Panel {
 pub struct Widget {
     pub id:NodeId,pub action:Action,pub label:String,pub panel:Option<NodeId>,
     pub position:Position,pub size:[f32;2],pub style:Style,pub bottom:bool,
+    #[serde(default)] pub page:Option<Action>,
+    #[serde(default)] pub flow:bool,
+    #[serde(default="default_span")] pub span:u8,
 }
 #[derive(Clone,Debug,Serialize,Deserialize,PartialEq)]
 pub struct Document {
@@ -60,13 +63,14 @@ pub struct Document {
 }
 impl Default for Document {
     fn default()->Self {
-        Self{version:VERSION,next_id:5,background:None,
-            panels:vec![Panel{id:1,edge:Edge::Left,size:[184.0,64.0],position:Position::default(),vertical:true,style:Style::default()}],
+        let mut d=Self{version:VERSION,next_id:5,background:None,
+            panels:vec![Panel{id:1,edge:Edge::Left,size:[76.0,64.0],position:Position::default(),vertical:true,style:Style::default()}],
             widgets:vec![
-                Widget{id:2,action:Action::Home,label:"Главная".into(),panel:Some(1),position:Position::default(),size:[160.0,44.0],style:Style::default(),bottom:false},
-                Widget{id:3,action:Action::Library,label:"Сборки".into(),panel:Some(1),position:Position::default(),size:[160.0,44.0],style:Style::default(),bottom:false},
-                Widget{id:4,action:Action::Settings,label:"Настройки".into(),panel:Some(1),position:Position::default(),size:[160.0,44.0],style:Style::default(),bottom:true},
-            ]}
+                Widget{id:2,action:Action::Home,label:"Главная".into(),panel:Some(1),position:Position::default(),size:[160.0,44.0],style:Style::default(),bottom:false,page:None,flow:false,span:12},
+                Widget{id:3,action:Action::Library,label:"Сборки".into(),panel:Some(1),position:Position::default(),size:[160.0,44.0],style:Style::default(),bottom:false,page:None,flow:false,span:12},
+                Widget{id:4,action:Action::Settings,label:"Настройки".into(),panel:Some(1),position:Position::default(),size:[160.0,44.0],style:Style::default(),bottom:true,page:None,flow:false,span:12},
+            ]};
+        d.add_default_content();d
     }
 }
 impl Document {
@@ -82,7 +86,7 @@ impl Document {
         fn position(p:Position)->bool {p.offset.iter().all(|n|n.is_finite()&&*n>=0.0&&*n<=100_000.0)}
         fn style(s:&Style)->bool {s.rounding.is_none_or(|r|r.is_finite()&&(0.0..=100.0).contains(&r))}
         if self.panels.iter().any(|p|!dimensions(p.size)||!position(p.position)||!style(&p.style)) ||
-           self.widgets.iter().any(|w|!dimensions(w.size)||!position(w.position)||!style(&w.style)||w.label.chars().count()>80||w.label.chars().any(char::is_control)||
+           self.widgets.iter().any(|w|!dimensions(w.size)||!position(w.position)||!style(&w.style)||!(1..=12).contains(&w.span)||w.page.is_some_and(|p|!matches!(p,Action::Home|Action::Library|Action::Settings))||w.label.chars().count()>80||w.label.chars().any(char::is_control)||
                w.panel.is_some_and(|id|!self.panels.iter().any(|p|p.id==id))) {
             return Err("Некорректные размеры, стиль, подпись или родитель".into())
         }
@@ -96,7 +100,7 @@ impl Document {
     pub fn add_widget(&mut self,action:Action)->NodeId {
         let id=self.next_id;self.next_id+=1;
         self.widgets.push(Widget{id,action,label:action.label().into(),panel:None,position:Position::default(),
-            size:[160.0,44.0],style:Style::default(),bottom:false});id
+            size:[160.0,44.0],style:Style::default(),bottom:false,page:None,flow:false,span:12});id
     }
     pub fn remove(&mut self,id:NodeId) {
         self.panels.retain(|p|p.id!=id);
@@ -105,7 +109,7 @@ impl Document {
     pub fn move_widget(&mut self,id:NodeId,parent:Option<NodeId>,before:Option<NodeId>,position:Position) {
         if parent.is_some_and(|p|!self.panels.iter().any(|x|x.id==p)){return}
         let Some(i)=self.widgets.iter().position(|w|w.id==id)else{return};
-        let mut w=self.widgets.remove(i);w.panel=parent;w.position=position;w.bottom=false;
+        let mut w=self.widgets.remove(i);w.panel=parent;w.position=position;w.bottom=false;w.flow=false;
         let at=before.and_then(|b|self.widgets.iter().position(|w|w.id==b&&w.panel==parent)).unwrap_or(self.widgets.len());
         self.widgets.insert(at,w);
     }
@@ -154,8 +158,9 @@ pub fn load(dir:&Path)->Result<Option<(u64,Document)>,String>{
             // Inspect the version BEFORE typed parsing: a future widget enum may
             // not deserialize, but that must never make its file overwriteable.
             let version=raw.get("document").and_then(|d|d.get("version")).and_then(|v|v.as_u64());
-            if version.is_some_and(|v|v!=VERSION as u64){return Err(format!("FUTURE: версия {}",version.unwrap()))}
-            let snap:Snapshot=serde_json::from_value(raw).map_err(|e|e.to_string())?;
+            if version.is_some_and(|v|v!=1&&v!=VERSION as u64){return Err(format!("FUTURE: версия {}",version.unwrap()))}
+            let mut snap:Snapshot=serde_json::from_value(raw).map_err(|e|e.to_string())?;
+            if snap.document.version==1{snap.document=snap.document.migrate_v1();}
             snap.document.validate()?;Ok(snap)
         })();
         match result {Ok(s)=>valid.push(s),Err(e)=>{if e.starts_with("FUTURE:"){return Err(e)}errors.push(e);}}
@@ -216,7 +221,7 @@ mod tests {
         let mut d=Document::default();let initial=d.clone();let mut h=History::default();
         let panel=d.add_panel(Edge::Top,Position::default());
         d.move_widget(3,Some(panel),None,Position::default());h.record(initial.clone(),&d);
-        assert_eq!(d.widgets.len(),3);assert_eq!(d.widgets.iter().find(|w|w.id==3).unwrap().action,Action::Library);
+        assert_eq!(d.widgets.len(),initial.widgets.len());assert_eq!(d.widgets.iter().find(|w|w.id==3).unwrap().action,Action::Library);
         h.undo(&mut d);assert_eq!(d,initial);h.redo(&mut d);assert_eq!(d.widgets.iter().find(|w|w.id==3).unwrap().panel,Some(panel));
     }
     #[test] fn resize_layout_does_not_rewrite_document(){
@@ -232,7 +237,7 @@ mod tests {
     #[test] fn local_style_and_panel_removal_are_independent(){
         let mut d=Document::default();d.widgets[1].style.rounding=Some(20.0);
         assert_eq!(d.widgets[0].style.rounding,None);
-        d.remove(1);assert!(d.panels.is_empty()&&d.widgets.is_empty());assert!(d.validate().is_ok());
+        d.remove(1);assert!(d.panels.is_empty()&&d.widgets.iter().all(|w|w.panel.is_none()));assert!(d.validate().is_ok());
     }
     #[test] fn future_schema_and_write_failure_preserve_files(){
         let dir=std::env::temp_dir().join(format!("caligo-future-{}-{}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
@@ -256,4 +261,65 @@ mod tests {
         fs::write(dir.join("interface-b.json"),"{broken").unwrap();assert_eq!(load(&dir).unwrap().unwrap(),(1,d));
         fs::remove_dir_all(dir).unwrap();
     }
+}
+impl Action {
+    pub fn is_navigation(self)->bool {matches!(self,Self::Home|Self::Library|Self::Settings|Self::Profile)}
+    pub fn components()->&'static [Action] {
+        &[Self::Heading,Self::Selection,Self::Version,Self::Launch,Self::Status,Self::LibrarySearch,Self::CreateInstance,Self::LibraryList,Self::Account,Self::Appearance,Self::Atmosphere,Self::ThemeJson,Self::LegacyStyles]
+    }
+}
+impl Document {
+    pub fn add_content(&mut self,action:Action,page:Action,span:u8,height:f32)->NodeId {
+        let id=self.add_widget(action);
+        let w=self.widgets.last_mut().unwrap();
+        w.page=Some(page);w.flow=true;w.span=span;w.size=[320.0,height];
+        id
+    }
+    pub fn add_default_content(&mut self) {
+        use Action::*;
+        for (page,action,span,height,label) in [
+            (Home,Heading,12,48.0,"Главная"),
+            (Home,Selection,12,84.0,"Выбрано для запуска"),
+            (Home,Version,8,88.0,"Версия Minecraft"),
+            (Home,Launch,4,88.0,"Играть"),
+            (Home,Status,12,44.0,"Состояние игры"),
+            (Home,LibraryList,8,208.0,"Мои сборки"),
+            (Home,Account,4,208.0,"Профиль"),
+            (Library,Heading,12,48.0,"Сборки"),
+            (Library,LibrarySearch,8,48.0,"Найти сборку"),
+            (Library,CreateInstance,4,48.0,"Создать сборку"),
+            (Library,LibraryList,12,368.0,"Библиотека"),
+            (Settings,Heading,12,48.0,"Настройки"),
+            (Settings,Appearance,6,272.0,"Оформление"),
+            (Settings,Atmosphere,6,272.0,"Фон и атмосфера"),
+            (Settings,ThemeJson,12,288.0,"JSON-тема"),
+            (Settings,LegacyStyles,12,256.0,"Совместимость тем"),
+        ] {
+            self.add_content(action,page,span,height);
+            self.widgets.last_mut().unwrap().label=label.into();
+        }
+    }
+    pub fn migrate_v1(mut self)->Self {
+        self.version=VERSION;
+        self.add_default_content();
+        self
+    }
+}
+fn default_span()->u8 {12}
+
+/// Responsive row-flow. Rows are computed from component spans, not hardcoded
+/// component kinds. Narrow views stack; saved spans and dimensions stay intact.
+pub fn flow_rects(widgets:&[Widget],bounds:Rect)->Vec<(NodeId,Rect)> {
+    let gap=12.0;let narrow=bounds.width()<560.0;
+    let unit=((bounds.width()-11.0*gap)/12.0).max(1.0);
+    let mut y=bounds.top();let mut x=bounds.left();let mut used=0_u8;let mut row_h=0.0_f32;
+    let mut out=Vec::new();
+    for w in widgets {
+        let span=if narrow{12}else{w.span.clamp(1,12)};
+        if used>0&&used+span>12 {y+=row_h+gap;x=bounds.left();used=0;row_h=0.0;}
+        let width=if span==12{bounds.width()}else{unit*span as f32+gap*(span-1) as f32};
+        out.push((w.id,Rect::from_min_size(pos2(x,y),vec2(width,w.size[1]))));
+        x+=width+gap;used+=span;row_h=row_h.max(w.size[1]);
+    }
+    out
 }

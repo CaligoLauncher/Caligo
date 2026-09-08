@@ -1,5 +1,4 @@
-//! Native composition editor for shell navigation. Existing page bodies remain
-//! functional blocks, disabled during editing; they are not claimed as editable.
+//! Direct editor for navigation and page components. Actions are gated while editing.
 use eframe::egui::{self,pos2,vec2,Color32,Id,Pos2,Rect,Sense,Stroke,Vec2};
 use crate::{composition::{self,Action,Anchor,Document,Edge,History,Layout,NodeId,Position},theme::ThemePreset};
 
@@ -8,6 +7,7 @@ enum DragKind { Move,Size }
 struct Drag {id:NodeId,kind:DragKind,start:Pos2,rect:Rect,before:Document}
 pub struct Editor {
     pub document:Document,
+    pub page:Action,
     baseline:Option<Document>,
     history:History,
     selected:Option<NodeId>,
@@ -24,7 +24,7 @@ pub struct Editor {
     pub controls:Vec<(&'static str,Rect)>,
 }
 impl Default for Editor {
-    fn default()->Self {Self{document:Document::default(),baseline:None,history:History::default(),selected:None,
+    fn default()->Self {Self{document:Document::default(),page:Action::Home,baseline:None,history:History::default(),selected:None,
         inspector:false,background_open:false,drag:None,adding:false,error:None,generation:0,blocked:false,
         rects:Vec::new(),panel_rects:Vec::new(),gesture_before:None,controls:Vec::new()}}
 }
@@ -82,10 +82,18 @@ impl Editor {
                     let add=ui.button(if self.adding{"Выбери место…"}else{"+ Панель"});
                     self.controls.push(("add_panel",add.rect));
                     if add.clicked(){self.adding=!self.adding;self.inspector=false;}
-                    ui.menu_button("+ Кнопка",|ui|{
+                    ui.menu_button("+ Элемент",|ui|{
                         for action in [Action::Home,Action::Library,Action::Settings,Action::Profile]{
                             if ui.button(action.label()).clicked(){
                                 self.change(|d|{d.add_widget(action);});ui.close_menu();
+                            }
+                        }
+                    });
+                    ui.menu_button("Компоненты",|ui|{
+                        for &kind in Action::components(){
+                            if ui.button(kind.label()).clicked(){
+                                let page=self.page;
+                                self.change(|d|{d.add_content(kind,page,12,160.0);});ui.close_menu();
                             }
                         }
                     });
@@ -100,11 +108,14 @@ impl Editor {
                     });
                 });
                 ui.horizontal(|ui|{
-                    ui.label(egui::RichText::new(if self.adding{"Нажми у края для закрепления или в центре для свободной панели. Esc — отмена."}else{"Потяни кнопку или ручку размера. Шестерёнка — локальный стиль."}).size(11.0).color(theme.text_tertiary()));
+                    for page in [Action::Home,Action::Library,Action::Settings] {
+                        if ui.selectable_label(self.page==page,page.label()).clicked(){self.page=page;self.selected=None;self.inspector=false;}
+                    }
+                    ui.separator();
                     ui.menu_button("Объекты",|ui|{
                         let panels=self.document.panels.clone();let widgets=self.document.widgets.clone();
                         for p in panels {if ui.button(format!("Панель {}",p.id)).clicked(){self.selected=Some(p.id);self.inspector=true;ui.close_menu();}}
-                        for w in widgets {if ui.button(&w.label).clicked(){self.selected=Some(w.id);self.inspector=true;ui.close_menu();}}
+                        for w in widgets {if ui.button(&w.label).clicked(){self.selected=Some(w.id);self.inspector=true;if let Some(p)=w.page{self.page=p;}ui.close_menu();}}
                         ui.separator();
                         if ui.button("Восстановить стандартную раскладку").clicked(){self.change(|d|*d=Document::default());ui.close_menu();}
                     });
@@ -112,67 +123,93 @@ impl Editor {
             });
     }
     pub fn layout(&self,bounds:Rect)->Layout {Layout::compute(&self.document,bounds)}
-    pub fn shell(&mut self,ctx:&egui::Context,layout:&Layout,theme:&ThemePreset,active:Action)->Option<Action>{
+pub fn shell(&mut self,ctx:&egui::Context,layout:&Layout,theme:&ThemePreset,active:Action,
+        mut content:impl FnMut(&mut egui::Ui,&composition::Widget))->Option<Action> {
         self.rects.clear();self.panel_rects=layout.panels.clone();
         let mut action=None;
+        let visible=|w:&composition::Widget|w.page.is_none_or(|p|p==active);
+        let flow:Vec<_>=self.document.widgets.iter().filter(|w|visible(w)&&w.panel.is_none()&&w.flow).cloned().collect();
+        egui::CentralPanel::default().frame(egui::Frame::none()).show(ctx,|ui|{
+            let area=layout.content.shrink(20.0);
+            let mut page=ui.new_child(egui::UiBuilder::new().id_salt(("workspace_page",active)).max_rect(area));
+            page.set_clip_rect(area);
+            egui::ScrollArea::vertical().id_salt(("workspace_scroll",active)).auto_shrink([false,false]).show(&mut page,|ui|{
+                let bounds=Rect::from_min_size(ui.cursor().min,vec2(ui.available_width(),1.0));
+                let rects=composition::flow_rects(&flow,bounds);
+                for (w,(_,r)) in flow.iter().zip(rects.iter()) {
+                    let mut child=ui.new_child(egui::UiBuilder::new().id_salt(("workspace_node",w.id)).max_rect(*r));
+                    child.set_clip_rect(r.intersect(ui.clip_rect()));
+                    if let Some(a)=self.widget(&mut child,w,r.size(),theme,active,&mut content){action=Some(a);}
+                }
+                if let Some((_,last))=rects.last(){
+                    let bottom=rects.iter().map(|(_,r)|r.bottom()).fold(last.bottom(),f32::max);
+                    ui.allocate_space(vec2(bounds.width(),(bottom-bounds.top()).max(1.0)));
+                }
+            });
+        });
         for p in self.document.panels.clone(){
             let Some(r)=layout.panel(p.id)else{continue};
             if r.width()<24.0||r.height()<24.0{continue}
-            egui::Area::new(Id::new(("compose_panel",p.id))).fixed_pos(r.min)
-                .order(egui::Order::Middle).fade_in(false).show(ctx,|ui|{
+            egui::Area::new(Id::new(("compose_panel",p.id))).fixed_pos(r.min).order(egui::Order::Middle).fade_in(false).show(ctx,|ui|{
                 ui.set_min_size(r.size());ui.set_max_size(r.size());ui.set_clip_rect(r);
-                let fallback=theme.modules.sidebar.fill_or(theme.surface(1));
-                let fill=p.style.fill.map(rgba).unwrap_or(fallback);
+                let fill=p.style.fill.map(rgba).unwrap_or(theme.modules.sidebar.fill_or(theme.surface(2)));
                 ui.painter().rect_filled(r,p.style.rounding.unwrap_or(theme.modules.sidebar.rounding_or(0.0)),fill);
-                if let Some(stroke)=theme.modules.sidebar.border_override(){ui.painter().rect_stroke(r,0.0,stroke);}
-                let inner=r.shrink(12.0);
+                ui.painter().line_segment([r.right_top(),r.right_bottom()],Stroke::new(1.0_f32,theme.surface(3)));
+                let inner=r.shrink(10.0);
                 let mut child=ui.new_child(egui::UiBuilder::new().id_salt(("panel_items",p.id)).max_rect(inner));
                 child.set_clip_rect(inner);
-                let widgets:Vec<_>=self.document.widgets.iter().filter(|w|w.panel==Some(p.id)).cloned().collect();
-                let total: f32=widgets.iter().map(|w|if p.vertical{w.size[1]+6.0}else{w.size[0]+6.0}).sum();
+                let widgets:Vec<_>=self.document.widgets.iter().filter(|w|w.panel==Some(p.id)&&visible(w)).cloned().collect();
+                let total:f32=widgets.iter().map(|w|if p.vertical{w.size[1]+8.0}else{w.size[0]+8.0}).sum();
                 let view=if p.vertical{inner.height()}else{inner.width()};
                 let scroll=if p.vertical{egui::ScrollArea::vertical()}else{egui::ScrollArea::horizontal()};
                 scroll.id_salt(("panel_scroll",p.id)).auto_shrink([false,false]).show(&mut child,|ui|{
                     if p.vertical {
                         let mut used=0.0;
                         for w in &widgets {
-                            if w.bottom&&total<view {ui.add_space((view-used-w.size[1]-24.0).max(0.0));}
-                            if let Some(a)=self.widget(ui,w,vec2(inner.width().max(24.0),w.size[1]),theme,active){action=Some(a)}
-                            ui.add_space(6.0);used+=w.size[1]+6.0;
+                            if w.bottom&&total<view {ui.add_space((view-used-w.size[1]-12.0).max(0.0));}
+                            if let Some(a)=self.widget(ui,w,vec2(inner.width().max(24.0),w.size[1]),theme,active,&mut content){action=Some(a)}
+                            ui.add_space(8.0);used+=w.size[1]+8.0;
                         }
                     }else{
-                        ui.horizontal(|ui|{for w in &widgets {if let Some(a)=self.widget(ui,w,vec2(w.size[0],w.size[1].min(inner.height().max(24.0))),theme,active){action=Some(a)}}});
+                        ui.horizontal(|ui|{for w in &widgets{
+                            if let Some(a)=self.widget(ui,w,vec2(w.size[0],w.size[1].min(inner.height().max(24.0))),theme,active,&mut content){action=Some(a)}
+                        }});
                     }
                 });
             });
         }
-        for w in self.document.widgets.clone().into_iter().filter(|w|w.panel.is_none()){
+        for w in self.document.widgets.clone().into_iter().filter(|w|visible(w)&&w.panel.is_none()&&!w.flow){
             let r=w.position.rect(layout.bounds,vec2(w.size[0],w.size[1]));
             egui::Area::new(Id::new(("compose_free",w.id))).fixed_pos(r.min).fade_in(false).order(egui::Order::Middle).show(ctx,|ui|{
-                ui.set_clip_rect(r);if let Some(a)=self.widget(ui,&w,r.size(),theme,active){action=Some(a)}
+                ui.set_clip_rect(r);if let Some(a)=self.widget(ui,&w,r.size(),theme,active,&mut content){action=Some(a)}
             });
         }
         if self.active(){None}else{action}
     }
-    fn widget(&mut self,ui:&mut egui::Ui,w:&composition::Widget,size:Vec2,theme:&ThemePreset,active:Action)->Option<Action>{
+    fn widget(&mut self,ui:&mut egui::Ui,w:&composition::Widget,size:Vec2,theme:&ThemePreset,active:Action,
+        content:&mut impl FnMut(&mut egui::Ui,&composition::Widget))->Option<Action>{
         let (r,_)=ui.allocate_exact_size(size,Sense::hover());
-        let response=ui.interact(r,Id::new(("composition_action",w.id)),Sense::click());
         let rclip=r.intersect(ui.clip_rect());if rclip.is_positive(){self.rects.push((w.id,rclip));}
+        if !w.action.is_navigation(){
+            let mut child=ui.new_child(egui::UiBuilder::new().id_salt(("component",w.id)).max_rect(r));
+            child.set_clip_rect(r.intersect(ui.clip_rect()));
+            child.add_enabled_ui(!self.active(),|ui|content(ui,w));
+            return None
+        }
+        let response=ui.interact(r,Id::new(("composition_action",w.id)),Sense::click());
         let selected=active==w.action;
-        let fill=w.style.fill.map(rgba).unwrap_or(if selected{theme.surface(3)}else{Color32::TRANSPARENT});
-        ui.painter().rect_filled(r,w.style.rounding.unwrap_or(8.0),fill);
-        if response.hovered(){ui.painter().rect_filled(r,w.style.rounding.unwrap_or(8.0),Color32::from_white_alpha(10));}
-        let color=if w.style.fill.is_some(){crate::ui::components::contrast(fill)}else{theme.text_primary()};
+        let fill=w.style.fill.map(rgba).unwrap_or(if selected{theme.surface(4)}else{Color32::TRANSPARENT});
+        ui.painter().rect_filled(r,w.style.rounding.unwrap_or(theme.rounding),fill);
+        if response.hovered(){ui.painter().rect_filled(r,w.style.rounding.unwrap_or(theme.rounding),theme.accent_bg());}
+        let color=if w.style.fill.is_some(){crate::ui::components::contrast(fill)}else if selected{theme.accent_color()}else{theme.text_body()};
         let center=pos2(if r.width()<90.0{r.center().x}else{r.left()+20.0},r.center().y);
         let icon=match w.action{Action::Home=>crate::app::NavIcon::Home,Action::Library=>crate::app::NavIcon::Cube,_=>crate::app::NavIcon::Sliders};
         crate::app::paint_nav_icon(ui.painter(),center,icon,color,0.0);
         if r.width()>=90.0{
             crate::ui::components::label(ui.painter(),Rect::from_min_max(pos2(r.left()+40.0,r.top()),r.max-vec2(6.0,0.0)),&w.label,13.0,color);
         }
-        let clicked=response.on_hover_text(&w.label).clicked();
-        if clicked&&!self.active(){Some(w.action)}else{None}
-    }
-    pub fn overlay(&mut self,ctx:&egui::Context,layout:&Layout,theme:&ThemePreset){
+        if response.on_hover_text(&w.label).clicked()&&!self.active(){Some(w.action)}else{None}
+    }    pub fn overlay(&mut self,ctx:&egui::Context,layout:&Layout,theme:&ThemePreset){
         if !self.active(){self.show_error(ctx);return}
         let bounds=layout.bounds;
         let panel_rects=self.panel_rects.clone();let widget_rects=self.rects.clone();
@@ -318,7 +355,7 @@ impl Editor {
         if !self.inspector{return}
         let Some(id)=self.selected else{return};
         let is_panel=self.document.panels.iter().any(|p|p.id==id);
-        let name=self.document.widgets.iter().find(|w|w.id==id).map(|w|format!("Кнопка «{}»",w.label)).unwrap_or_else(||format!("Панель {id}"));
+        let name=self.document.widgets.iter().find(|w|w.id==id).map(|w|format!("{} · {}",w.action.label(),w.id)).unwrap_or_else(||format!("Панель {id}"));
         let rect=self.rects.iter().chain(self.panel_rects.iter()).find(|(i,_)|*i==id).map(|(_,r)|*r).unwrap_or(layout.content);
         let pos=pos2((rect.right()+12.0).min(layout.bounds.right()-280.0).max(layout.bounds.left()+8.0),(rect.top()+34.0).min(layout.bounds.bottom()-290.0).max(layout.bounds.top()));
         let mut remove=false;let mut parent_select=None;let mut close=false;
@@ -331,7 +368,15 @@ impl Editor {
                 if w.panel.and_then(|id|self.document.panels.iter().find(|p|p.id==id)).is_some_and(|p|p.vertical){
                     ui.checkbox(&mut w.bottom,"Прижать вниз");
                 }
-                if w.panel.is_none(){anchor_ui(ui,&mut w.position);}
+                if w.panel.is_none(){
+                    ui.checkbox(&mut w.flow,"В потоке страницы");
+                    if w.flow {ui.add(egui::Slider::new(&mut w.span,1..=12).text("Доля строки"));}else{anchor_ui(ui,&mut w.position);}
+                }
+                egui::ComboBox::from_id_salt("visibility").selected_text(w.page.map(|p|p.label()).unwrap_or("Все страницы")).show_ui(ui,|ui|{
+                    for page in [None,Some(Action::Home),Some(Action::Library),Some(Action::Settings)]{
+                        ui.selectable_value(&mut w.page,page,page.map(|p|p.label()).unwrap_or("Все страницы"));
+                    }
+                });
             }
             if let Some(p)=self.document.panels.iter_mut().find(|p|p.id==id){
                 ui.checkbox(&mut p.vertical,"Вертикальное расположение");
@@ -353,7 +398,7 @@ impl Editor {
                 if ui.button("Удалить").clicked(){remove=true;}
                 if ui.button("Закрыть").clicked(){close=true;}
             });
-            ui.label(egui::RichText::new(if is_panel{"Удаляет панель и её кнопки, не данные игры. Можно отменить."}else{"Удаляет только кнопку из интерфейса. Можно отменить."}).size(11.0).color(theme.text_tertiary()));
+            ui.label(egui::RichText::new(if is_panel{"Удаляет панель и её кнопки, не данные игры. Можно отменить."}else{"Удаляет компонент, не игровые данные. Можно отменить."}).size(11.0).color(theme.text_tertiary()));
         });
         if let Some(window)=window{self.controls.push(("inspector",window.response.rect));}
         if remove{self.document.remove(id);self.selected=None;self.inspector=false;}

@@ -1,3 +1,4 @@
+mod workspace;
 mod app;
 mod composition;
 mod editor;
