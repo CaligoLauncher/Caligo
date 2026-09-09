@@ -255,7 +255,7 @@ fn visual_review_editor_screens(){
         }
         if editing {
             let inspector=app.editor.controls.iter().find(|(s,_)|*s=="inspector").unwrap().1;
-            let available_top=app.editor.panel_rects.iter().map(|(_,r)|r.top()).fold(f32::INFINITY,f32::min);
+            let available_top=app.editor.controls.iter().find(|(s,_)|*s=="toolbar").unwrap().1.bottom();
             assert!(inspector.top()>=available_top-1.0,"local inspector must not cover protected toolbar");
             assert!(inspector.bottom()<=h as f32,"local inspector must remain on screen");
         }

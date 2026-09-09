@@ -77,6 +77,7 @@ impl Editor {
         egui::TopBottomPanel::top("composition_toolbar").exact_height(88.0)
             .frame(egui::Frame::none().fill(theme.surface(2)).inner_margin(egui::Margin::symmetric(12.0,8.0)))
             .show(ctx,|ui|{
+                self.controls.push(("toolbar",ui.max_rect()));
                 ui.horizontal(|ui|{
                     ui.label(egui::RichText::new("Редактор").strong().color(theme.accent_color()));
                     ui.separator();
