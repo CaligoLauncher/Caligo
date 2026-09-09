@@ -1,15 +1,13 @@
-mod rpg_scene;
-mod workspace;
+mod canvas_model;
+mod canvas_store;
+mod canvas_editor;
+mod canvas_paint;
+mod game_session;
+mod library;
 mod app;
-mod composition;
-mod editor;
 mod auth;
-mod background;
-mod effects;
 mod launch;
 mod skin;
-mod theme;
-mod ui;
 
 use eframe::egui;
 

@@ -1,466 +1,254 @@
-use eframe::egui::{self,pos2,vec2,Rect,Stroke};
-use crate::auth::{AuthManager,AuthState};
-use crate::background::Background;
-use crate::effects::Mist;
-use crate::launch::LaunchManager;
-use crate::skin::{self,SkinManager};
-use crate::theme::ThemePreset;
-use crate::ui;
-
-const TITLEBAR_H:f32=48.0;
-const PROFILE_W:f32=280.0;
-
-#[derive(Debug,Clone,Copy,PartialEq,Eq)]
-pub enum Tab{Home,Instances,Settings}
-
-fn install_fonts(ctx:&egui::Context){
-    let mut fonts=egui::FontDefinitions::default();
-    fonts.font_data.insert("manrope".into(),egui::FontData::from_static(include_bytes!("../assets/fonts/Manrope.ttf")));
-    fonts.families.get_mut(&egui::FontFamily::Proportional).unwrap().insert(0,"manrope".into());
-    fonts.font_data.insert("manrope-semibold".into(),egui::FontData::from_static(include_bytes!("../assets/fonts/Manrope-SemiBold.ttf")));
-    let mut headings=fonts.families[&egui::FontFamily::Proportional].clone();
-    headings.insert(0,"manrope-semibold".into());
-    fonts.families.insert(egui::FontFamily::Name("heading".into()),headings);
-    ctx.set_fonts(fonts);
+//! Application shell rebuilt around a single scene, not fixed pages under an editor.
+use eframe::egui::{self,pos2,vec2,Color32,Rect,Stroke};
+use crate::{auth::{AuthManager,AuthState},launch::{LaunchManager,LaunchState},skin::{self,SkinManager}};
+use crate::{canvas_model::{Id,Kind,Page},canvas_editor::Studio,canvas_paint::{self as paint,Wallpaper},game_session::Session,library::Library};
+pub type Tab=Page;
+#[derive(Clone,Copy,PartialEq)]
+enum Popup{Profile,Versions,Search,Create,Appearance,Background,Json,Status,Delete(usize)}
+pub struct CaligoApp {
+    pub tab:Page,pub studio:Studio,pub auth:AuthManager,pub launch:LaunchManager,pub session:Session,
+    pub library:Library,skin:SkinManager,wallpaper:Wallpaper,popup:Option<Popup>,
+    search:String,version_search:String,new_name:String,new_version:Option<String>,json:String,error:Option<String>,
+    test:bool,pub node_rects:Vec<(Id,Rect)>,pub controls:Vec<(&'static str,Rect)>,
+    pub canvas_bounds:Rect,
 }
-
-pub struct CaligoApp{
-    pub tab:Tab,
-    pub theme:ThemePreset,
-    pub settings:ui::settings::SettingsState,
-    pub auth:AuthManager,
-    pub launch:LaunchManager,
-    pub play:ui::play::PlayState,
-    pub instances:ui::instances::InstancesState,
-    pub skin:SkinManager,
-    background:Background,
-    mist:Mist,
-    profile_open:bool,
-    visual_test:bool,
-    pub editor:crate::editor::Editor,
-}
-
 impl CaligoApp{
-    pub fn new(cc:&eframe::CreationContext<'_>)->Self{
-        let mut app=Self::with_context(&cc.egui_ctx);
-        app.editor=crate::editor::Editor::load();
-        app
-    }
-    fn with_context(ctx:&egui::Context)->Self{
-        install_fonts(ctx);
-        let mut theme=ThemePreset::default();theme.modules.mist=false;theme.modules.background.vignette=0.0;theme.apply(ctx);
-        Self{tab:Tab::Home,theme,settings:Default::default(),auth:Default::default(),launch:Default::default(),play:Default::default(),instances:Default::default(),skin:Default::default(),background:Background::load(ctx),mist:Mist::new(),profile_open:false,visual_test:false,editor:Default::default()}
-    }
-    fn skin_key(&self)->Option<String>{
-        match self.auth.state(){
-            AuthState::SignedIn(a)=>Some(a.uuid),
-            _=>{let n=self.play.offline_name.trim();if n.is_empty(){None}else{Some(n.into())}}
-        }
+    pub fn new(cc:&eframe::CreationContext<'_>)->Self{let mut a=Self::create(&cc.egui_ctx,false);a.studio=Studio::load();a}
+    fn create(ctx:&egui::Context,test:bool)->Self{
+        paint::setup(ctx);
+        Self{tab:Page::Home,studio:Studio::default(),auth:Default::default(),launch:Default::default(),session:Default::default(),library:Default::default(),skin:Default::default(),wallpaper:Wallpaper::load(ctx,test),popup:None,search:String::new(),version_search:String::new(),new_name:String::new(),new_version:None,json:String::new(),error:None,test,node_rects:vec![],controls:vec![],canvas_bounds:Rect::NOTHING}
     }
     pub fn render(&mut self,ctx:&egui::Context){
-        let active=match self.tab{Tab::Home=>crate::composition::Action::Home,Tab::Instances=>crate::composition::Action::Library,Tab::Settings=>crate::composition::Action::Settings};
-        if !self.editor.active(){self.editor.page=active;}
-        if ctx.input_mut(|i|i.consume_key(egui::Modifiers::CTRL|egui::Modifiers::SHIFT,egui::Key::E)){self.editor.begin();self.profile_open=false;}
-        if let Some(c)=self.editor.document.background {
-            ctx.layer_painter(egui::LayerId::background()).rect_filled(ctx.screen_rect(),0.0,crate::theme::color_arr(c));
-        }else{self.background.paint(ctx,&self.theme,&[]);}
-        if !self.visual_test{self.skin.ensure(ctx,self.skin_key());}
-        self.launch.ensure_versions(ctx.clone());self.instances.ensure_loaded();
-        self.titlebar(ctx,76.0);
-        self.editor.toolbar(ctx,&self.theme);
-        let editing=self.editor.active();
-        if editing{self.profile_open=false;}
-        let active=if editing{self.editor.page}else{active};
-        let layout=self.editor.layout(ctx.available_rect());
-        let look=self.theme.clone();
-        let mut intents=Vec::new();
-        let wallpaper=self.editor.document.background.is_none();
-        let action=self.editor.shell(ctx,&layout,&look,active,&self.background,|ui,w|{
-            if let Some(intent)=crate::workspace::show(ui,w,&mut self.theme,&self.auth,&mut self.play,&self.launch,&self.skin,&mut self.instances,&mut self.settings,&self.background,wallpaper){
-                intents.push(intent);
-            }
-        });
-        if !editing {
-            if let Some(action)=action {self.dispatch_shell_action(action);}
-            for intent in intents {match intent{
-                crate::workspace::Intent::Launch=>{
-                    if let Some(version)=ui::play::selected_version(&self.play,&self.launch){
-                        self.launch.launch(ctx.clone(),version,ui::play::profile_for(&self.auth,&self.play));
+        if !self.test {self.skin.ensure(ctx,self.session.skin_key(&self.auth));self.launch.ensure_versions(ctx.clone());self.library.ensure_loaded();}
+        if ctx.input_mut(|i|i.consume_key(egui::Modifiers::CTRL|egui::Modifiers::SHIFT,egui::Key::E)){
+            self.studio.page=self.tab;self.studio.begin();self.popup=None;
+        }
+        self.wallpaper.paint(ctx);self.controls.clear();
+        self.titlebar(ctx);
+        let bounds=ctx.available_rect();self.canvas_bounds=bounds;
+        let editing=self.studio.active;
+        if editing{self.popup=None;self.studio.input(ctx,bounds);}
+        else{self.studio.page=self.tab;}
+        let page=if editing{self.studio.page}else{self.tab};
+        self.node_rects.clear();
+        let mut clicked=None;let mut picked=None;
+        egui::CentralPanel::default().frame(egui::Frame::none()).show(ctx,|ui|{
+            for id in self.studio.scene.order(){
+                if !self.studio.scene.shown(id,page){continue}
+                let n=self.studio.scene.node(id).unwrap().clone();
+                let Some(r)=self.studio.scene.screen_rect(id,bounds)else{continue};
+                self.node_rects.push((id,r));
+                let p=ui.painter().with_clip_rect(r.intersect(bounds));
+                self.wallpaper.surface(&p,r,&n.style);
+                let active_nav=matches!((n.kind,page),(Kind::Home,Page::Home)|(Kind::Library,Page::Library)|(Kind::Settings,Page::Settings));
+                let enabled=match n.kind{Kind::Play=>self.session.version(&self.launch).is_some()&&!matches!(self.launch.state(),LaunchState::Preparing(_)|LaunchState::Running),_=>true};
+                // In editor mode no widget is built, focused or fired below the overlay.
+                // Exactly the same painter/style is used, without disabled-grey fading.
+                let resp=if !editing&&self.popup.is_none()&&n.kind.button(){
+                    Some(ui.interact(r,egui::Id::new(("shell-node",id)),egui::Sense::click()))
+                }else{None};
+                if active_nav{p.rect_filled(r,n.style.radius,Color32::from_white_alpha(20));}
+                if resp.as_ref().is_some_and(|r|r.hovered())&&enabled{p.rect_filled(r,n.style.radius,Color32::from_white_alpha(15));ctx.set_cursor_icon(egui::CursorIcon::PointingHand);}
+                let ink=paint::rgba(n.style.ink);
+                let label=match n.kind{
+                    Kind::Selection=>self.session.instance.clone().unwrap_or("Minecraft".into()),
+                    Kind::Version=>self.session.version(&self.launch).map(|v|format!("Minecraft {}  ▾",v.id)).unwrap_or("Выбрать версию".into()),
+                    Kind::Search=>if self.search.is_empty(){"Найти сборку…".into()}else{self.search.clone()},
+                    Kind::Status=>match self.launch.state(){LaunchState::Idle=>"Готов к игре".into(),LaunchState::Preparing(s)=>s,LaunchState::Running=>"Minecraft работает".into(),LaunchState::Exited(c)=>format!("Игра завершена · {c}"),LaunchState::Failed(_)=>"Ошибка запуска — открыть подробности".into()},
+                    Kind::Play=>match self.launch.state(){LaunchState::Preparing(_)=>"Подготовка…".into(),LaunchState::Running=>"Игра запущена".into(),_=>n.name.clone()},
+                    _=>n.name.clone()
+                };
+                match n.kind{
+                    Kind::Character=>{
+                        let draw=Rect::from_center_size(r.center(),vec2(r.width()*1.6,r.height()));
+                        skin::paint_paperdoll(&p,draw,self.skin.texture().as_ref(),None,paint::rgba(self.studio.scene.accent),0.0);
+                    },
+                    Kind::Panel=>{},
+                    Kind::List=>{
+                        let inner=r.shrink(14.0);
+                        if editing{
+                            paint::text(&p,Rect::from_min_size(inner.min,vec2(inner.width(),28.0)),"Список твоих сборок",17.0,ink,false);
+                            paint::text(&p,Rect::from_min_size(inner.min+vec2(0.0,38.0),vec2(inner.width(),26.0)),"Записи остаются внутри списка",12.0,ink,false);
+                        }else{
+                            let mut child=ui.new_child(egui::UiBuilder::new().id_salt(("library-list",id)).max_rect(inner));
+                            child.set_clip_rect(inner.intersect(bounds));
+                            child.add_enabled_ui(self.popup.is_none(),|ui|{
+                                let matching:Vec<_>=self.library.items.iter().enumerate().filter(|(_,x)|x.name.to_lowercase().contains(&self.search.to_lowercase())||x.version.contains(&self.search)).map(|(i,x)|(i,x.clone())).collect();
+                                if matching.is_empty(){
+                                    ui.label(egui::RichText::new(if self.library.items.is_empty(){"Здесь будут твои сборки"}else{"Ничего не найдено"}).size(18.0));
+                                    ui.label("Сборка пока сохраняет имя и версию Minecraft.");
+                                    if self.library.items.is_empty()&&ui.button("Создать первую").clicked(){self.popup=Some(Popup::Create);}
+                                }else{
+                                    egui::ScrollArea::vertical().id_salt(("library-scroll",id)).max_height(inner.height()).show_rows(ui,64.0,matching.len(),|ui,range|{
+                                        for index in range{
+                                            let (source,item)=&matching[index];
+                                            let(w,h)=(ui.available_width(),60.0);
+                                            let (row,response)=ui.allocate_exact_size(vec2(w,h),egui::Sense::click());
+                                            if response.hovered(){ui.painter().rect_filled(row,8.0,Color32::from_white_alpha(12));}
+                                            paint::text(ui.painter(),Rect::from_min_size(row.min+vec2(10.0,2.0),vec2((w-60.0).max(1.0),30.0)),&item.name,16.0,ink,false);
+                                            paint::text(ui.painter(),Rect::from_min_size(row.min+vec2(10.0,31.0),vec2((w-60.0).max(1.0),22.0)),&format!("{}  ·  Vanilla",item.version),12.0,Color32::from_rgb(168,191,208),false);
+                                            if response.clicked(){picked=Some(*source);}
+                                            response.context_menu(|ui|{if ui.button("Удалить запись…").clicked(){self.popup=Some(Popup::Delete(*source));ui.close_menu();}});
+                                            let more=ui.put(Rect::from_min_size(pos2(row.right()-38.0,row.top()+12.0),vec2(30.0,28.0)),egui::Button::new("…"));
+                                            if more.clicked(){self.popup=Some(Popup::Delete(*source));picked=None;}
+                                        }
+                                    });
+                                }
+                            });
+                        }
+                    },
+                    _=>{
+                        let font=if n.kind==Kind::Status{n.style.font.min(12.0)}else{n.style.font};
+                        paint::text(&p,r.shrink2(vec2(if n.kind.button(){10.0}else{0.0},0.0)),&label,font,if enabled||editing{ink}else{ink.gamma_multiply(0.55)},n.kind.button());
                     }
                 }
-                crate::workspace::Intent::Profile=>self.profile_open=true,
-                crate::workspace::Intent::Home=>self.tab=Tab::Home,
-                crate::workspace::Intent::Create=>ui::instances::request_create(&mut self.instances),
-            }}
-            ui::instances::dialogs(ctx,&self.theme,&mut self.instances,&mut self.play,&self.launch);
-        }
-        if self.theme.modules.mist&&!self.visual_test&&!editing{self.mist.paint(ctx,self.theme.accent_color());}
-        self.editor.overlay(ctx,&layout,&self.theme);
+                if resp.is_some_and(|r|r.clicked())&&enabled{clicked=Some(n.kind);}
+                if n.kind==Kind::Status&&!editing&&self.popup.is_none()&&ui.interact(r,egui::Id::new(("status",id)),egui::Sense::click()).clicked(){clicked=Some(Kind::Status);}
+            }
+        });
+        if !editing{
+            if let Some(index)=picked{if let Some(x)=self.library.items.get(index){self.session.instance=Some(x.name.clone());self.session.version=Some(x.version.clone());self.tab=Page::Home;}}
+            if let Some(kind)=clicked{self.dispatch(ctx,kind);}
+            self.dialogs(ctx);
+            if let Some(error)=&self.studio.error{
+                egui::Window::new("Интерфейс не загружен").collapsible(false).show(ctx,|ui|{ui.label(error);ui.label("Сохранение заблокировано. Исходные файлы не изменены.");});
+            }
+        }else{self.studio.paint(ctx,bounds);}
     }
-    fn dispatch_shell_action(&mut self,action:crate::composition::Action){
-        if self.editor.active(){return}
-        match action{
-            crate::composition::Action::Home=>self.tab=Tab::Home,
-            crate::composition::Action::Library=>self.tab=Tab::Instances,
-            crate::composition::Action::Settings=>self.tab=Tab::Settings,
-            crate::composition::Action::Profile=>self.profile_open=true,
+    fn dispatch(&mut self,ctx:&egui::Context,k:Kind){
+        if self.studio.active{return}
+        match k{
+            Kind::Home=>self.tab=Page::Home,Kind::Library=>self.tab=Page::Library,Kind::Settings=>self.tab=Page::Settings,
+            Kind::Play=>if !self.test&&!matches!(self.launch.state(),LaunchState::Preparing(_)|LaunchState::Running){if let Some(v)=self.session.version(&self.launch){self.launch.launch(ctx.clone(),v,self.session.profile(&self.auth));}},
+            Kind::Profile=>self.popup=Some(Popup::Profile),Kind::Version=>self.popup=Some(Popup::Versions),
+            Kind::Search=>self.popup=Some(Popup::Search),Kind::Create=>self.popup=Some(Popup::Create),
+            Kind::Appearance=>self.popup=Some(Popup::Appearance),Kind::Background=>self.popup=Some(Popup::Background),
+            Kind::Status=>self.popup=Some(Popup::Status),
+            Kind::Json=>{self.json=serde_json::to_string_pretty(&self.studio.scene).unwrap_or_default();self.popup=Some(Popup::Json);},
             _=>{}
         }
     }
-    fn titlebar(&mut self,ctx:&egui::Context,sb_w:f32){
-        let tb=self.theme.modules.titlebar.clone();
-        let h=tb.height_or(TITLEBAR_H).clamp(40.0,96.0);
-        let mut anchor=None;
-        egui::TopBottomPanel::top("titlebar").exact_height(h).show_separator_line(false).frame(egui::Frame::none()).show(ctx,|ui|{
-            let r=ui.max_rect();
-            ui.painter().rect_filled(r,tb.rounding_or(0.0),tb.fill_or(egui::Color32::from_black_alpha(20)));
-            if let Some(s)=tb.border_override(){ui.painter().rect_stroke(r,tb.rounding_or(0.0),s);}
-            let drag=ui.interact(r,ui.id().with("drag"),egui::Sense::click_and_drag());
-            if drag.drag_started(){ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);}
-            if drag.double_clicked(){ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!ctx.input(|i|i.viewport().maximized.unwrap_or(false))));}
-            ui.horizontal_centered(|ui|{
-                ui.add_space(22.0);
-                if ui.add(egui::Label::new(egui::RichText::new("Caligo").size(17.0).strong().color(self.theme.text_primary())).sense(egui::Sense::click())).clicked()&&!self.editor.active(){self.tab=Tab::Home;}
-                ui.add_space((sb_w-133.0).max(0.0));
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{
-                    ui.spacing_mut().item_spacing.x=0.0;
-                    if window_button(ui,WinGlyph::Close,"Закрыть",h).clicked(){ctx.send_viewport_cmd(egui::ViewportCommand::Close);}
-                    if window_button(ui,WinGlyph::Max,"Развернуть",h).clicked(){ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!ctx.input(|i|i.viewport().maximized.unwrap_or(false))));}
-                    if window_button(ui,WinGlyph::Min,"Свернуть",h).clicked(){ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));}
-                    ui.add_space(18.0);
-                    let chip=profile_chip(ui,&self.theme,&self.auth,&self.play,&self.skin);
-                    anchor=Some(chip.rect);
-                    if chip.clicked()&&!self.editor.active(){self.profile_open=!self.profile_open;}
-                    ui.add_space(10.0);
-                    if ui.button("Редактор").on_hover_text("Редактировать интерфейс · Ctrl+Shift+E").clicked(){self.editor.begin();self.profile_open=false;}
-                });
-            });
+    fn titlebar(&mut self,ctx:&egui::Context){
+        egui::TopBottomPanel::top("shell-window-bar").exact_height(44.0).show_separator_line(false).frame(egui::Frame::none()).show(ctx,|ui|{
+            let r=ui.max_rect();ui.painter().rect_filled(r,0.0,Color32::from_black_alpha(24));
+            let drag=Rect::from_min_max(r.min,pos2((r.right()-460.0).max(r.left()+100.0),r.bottom()));
+            let response=ui.interact(drag,egui::Id::new("window-drag"),egui::Sense::click_and_drag());
+            if response.drag_started(){ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);}
+            if response.double_clicked(){ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!ctx.input(|i|i.viewport().maximized.unwrap_or(false))));}
+            paint::text(ui.painter(),Rect::from_min_size(r.min+vec2(20.0,0.0),vec2(100.0,44.0)),"Caligo",17.0,Color32::WHITE,false);
+            for(i,label)in["×","□","−"].iter().enumerate(){
+                let rect=Rect::from_min_size(pos2(r.right()-46.0*(i as f32+1.0),r.top()),vec2(46.0,44.0));
+                let res=ui.interact(rect,egui::Id::new(("window",i)),egui::Sense::click());
+                if res.hovered(){ui.painter().rect_filled(rect,0.0,if i==0{Color32::from_rgb(232,17,35)}else{Color32::from_white_alpha(18)});}
+                paint::text(ui.painter(),rect,label,19.0,Color32::WHITE,true);
+                if res.clicked(){match i{0=>if self.studio.active&&self.studio.dirty(){self.studio.exit_question=true}else{ctx.send_viewport_cmd(egui::ViewportCommand::Close)},1=>ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!ctx.input(|i|i.viewport().maximized.unwrap_or(false)))),_=>ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true))}}
+            }
+            let profile=Rect::from_min_size(pos2(r.right()-274.0,r.top()+7.0),vec2(122.0,30.0));
+            let name=match self.auth.state(){AuthState::SignedIn(a)=>a.username,_=>if self.session.offline_name.is_empty(){"Профиль".into()}else{self.session.offline_name.clone()}};
+            if ui.put(profile,egui::Button::new(name).fill(Color32::from_white_alpha(10))).clicked()&&!self.studio.active{self.popup=Some(Popup::Profile);}
+            let edit=Rect::from_min_size(pos2(r.right()-390.0,r.top()+7.0),vec2(104.0,30.0));
+            self.controls.push(("editor",edit));
+            if ui.put(edit,egui::Button::new(if self.studio.active{"Редактируешь"}else{"Редактор"}).fill(Color32::TRANSPARENT)).clicked()&&!self.studio.active{self.studio.page=self.tab;self.studio.begin();self.popup=None;}
         });
-        if self.profile_open&&!self.editor.active() {if let Some(r)=anchor{self.profile_popup(ctx,r);}}
     }
-    fn profile_popup(&mut self,ctx:&egui::Context,anchor:Rect){
-        let pos=pos2((anchor.right()-PROFILE_W).max(8.0),anchor.bottom()+8.0);
-        let area=egui::Area::new(egui::Id::new("profile_popup")).fixed_pos(pos).order(egui::Order::Foreground).show(ctx,|ui|{
-            egui::Frame::none().fill(self.theme.surface(2)).rounding(12.0).stroke(Stroke::new(1.0_f32,self.theme.surface(4))).inner_margin(20.0).show(ui,|ui|{
-                ui.set_width(PROFILE_W-40.0);
-                egui::ScrollArea::vertical().max_height((ctx.screen_rect().height()-120.0).max(160.0)).show(ui,|ui|{
-                profile_window(ui,self.theme.accent_color(),&self.auth,&mut self.play,&self.skin);
-                if self.skin.loading(){ui.label("Загрузка скина…");}
-                if let Some(error)=self.skin.error(){ui.label(egui::RichText::new(format!("Скин недоступен: {error}")).size(12.0));}
-                if !self.play.offline_name.trim().is_empty(){
-                    let (r,_)=ui.allocate_exact_size(vec2(PROFILE_W-40.0,160.0),egui::Sense::hover());
-                    skin::paint_paperdoll(ui.painter(),r,self.skin.texture().as_ref(),None,self.theme.accent_color(),0.0);
-                }
-                });
-            });
+    fn dialogs(&mut self,ctx:&egui::Context){
+        let Some(popup)=self.popup else{return};
+        if ctx.input(|i|i.key_pressed(egui::Key::Escape)){self.popup=None;self.error=None;return}
+        let title=match popup{Popup::Profile=>"Профиль",Popup::Versions=>"Версия Minecraft",Popup::Search=>"Поиск сборок",Popup::Create=>"Новая сборка",Popup::Appearance=>"Акцент интерфейса",Popup::Background=>"Свой фон",Popup::Json=>"Документ интерфейса",Popup::Status=>"Состояние Minecraft",Popup::Delete(_)=>"Удалить запись?"};
+        let mut open=true;
+        let w=egui::Window::new(title).id(egui::Id::new("shell-dialog")).order(egui::Order::Foreground).open(&mut open)
+            .collapsible(false).resizable(false).default_width(360.0).max_height((ctx.screen_rect().height()-140.0).max(180.0)).vscroll(true).constrain_to(ctx.screen_rect().shrink(20.0));
+        w.show(ctx,|ui|{
+            match popup{
+                Popup::Profile=>self.profile(ui),
+                Popup::Versions=>{
+                    ui.add(egui::TextEdit::singleline(&mut self.version_search).hint_text("Поиск версии"));
+                    match self.launch.versions(){
+                        None=>{ui.spinner();ui.label("Получаем список версий…");},
+                        Some(Err(e))=>{ui.label(e);if ui.button("Повторить").clicked(){self.launch.retry_versions(ctx.clone());}},
+                        Some(Ok(v))=>{for v in v.iter().filter(|v|v.kind=="release"&&v.id.contains(&self.version_search)){
+                            if ui.selectable_label(self.session.version.as_ref()==Some(&v.id),&v.id).clicked(){self.session.version=Some(v.id.clone());self.session.instance=None;self.popup=None;}
+                        }},
+                    }
+                },
+                Popup::Search=>{ui.add(egui::TextEdit::singleline(&mut self.search).hint_text("Имя или версия"));if ui.button("Показать").clicked(){self.popup=None;}},
+                Popup::Create=>{
+                    ui.label("Имя");ui.add(egui::TextEdit::singleline(&mut self.new_name).char_limit(80).hint_text("Например, Выживание"));
+                    ui.label("Версия");
+                    match self.launch.versions(){
+                        Some(Ok(v))=>{
+                            let releases:Vec<_>=v.iter().filter(|v|v.kind=="release").collect();
+                            if self.new_version.is_none(){self.new_version=releases.first().map(|v|v.id.clone());}
+                            egui::ComboBox::from_id_salt("create-version").selected_text(self.new_version.as_deref().unwrap_or("Нет версий")).show_ui(ui,|ui|{for v in releases{ui.selectable_value(&mut self.new_version,Some(v.id.clone()),&v.id);}});
+                        },
+                        _=>{ui.label("Список версий недоступен");if ui.button("Загрузить версии").clicked(){self.launch.retry_versions(ctx.clone());}},
+                    }
+                    ui.label("Сохраняются имя и версия. Игровая папка общая; моды и загрузчики пока не добавляются.");
+                    if ui.add_enabled(!self.new_name.trim().is_empty()&&self.new_version.is_some(),egui::Button::new("Создать")).clicked(){
+                        if let Some(v)=&self.new_version{match self.library.create(&self.new_name,v){
+                            Ok(())=>{self.session.instance=Some(self.new_name.trim().into());self.session.version=Some(v.clone());self.new_name.clear();self.error=None;self.popup=None;self.tab=Page::Home;},
+                            Err(e)=>self.error=Some(e),
+                        }}
+                    }
+                },
+                Popup::Delete(index)=>{
+                    if let Some(item)=self.library.items.get(index).cloned(){
+                        ui.label(egui::RichText::new(&item.name).strong());ui.label("Удалится только JSON-запись. Файлы Minecraft останутся.");
+                        if ui.button("Удалить запись").clicked(){match self.library.delete(index){Ok(())=>{if self.session.instance.as_ref()==Some(&item.name){self.session.instance=None;}self.popup=None;self.error=None;},Err(e)=>self.error=Some(e)}}
+                    }else{ui.label("Запись уже отсутствует");}
+                    if ui.button("Отмена").clicked(){self.popup=None;self.error=None;}
+                },
+                Popup::Appearance=>{
+                    ui.color_edit_button_srgba_unmultiplied(&mut self.studio.scene.accent);
+                    ui.label("Акцент редактора и новых элементов. Уже настроенные элементы не перекрашиваются.");
+                    if ui.button("Сохранить").clicked(){if self.studio.save(){self.popup=None;}}
+                },
+                Popup::Background=>{
+                    ui.label("Положи background.png, background.jpg или background.jpeg в каталог данных Caligo.");
+                    ui.monospace(crate::launch::install::game_dir().display().to_string());
+                    if ui.button("Перечитать фон").clicked(){self.wallpaper=Wallpaper::load(ctx,self.test);}
+                    ui.label("Размытие отдельных поверхностей — кэш обоев, не размытие всего окна.");
+                },
+                Popup::Json=>{
+                    ui.label("Раскладка, страницы и локальные стили. Без аккаунтов и токенов.");
+                    ui.add(egui::TextEdit::multiline(&mut self.json).code_editor().desired_rows(8).desired_width(340.0));
+                    if ui.button("Скопировать JSON").clicked(){ctx.output_mut(|o|o.copied_text=self.json.clone());}
+                    if ui.button("Открыть как черновик в редакторе").clicked(){
+                        match serde_json::from_str::<crate::canvas_model::Scene>(&self.json){
+                            Ok(s)=>match s.validate(){Ok(())=>{self.studio.page=self.tab;self.studio.begin();let old=self.studio.scene.clone();self.studio.scene=s;self.studio.record(old);self.popup=None;self.error=None;},Err(e)=>self.error=Some(e)},
+                            Err(e)=>self.error=Some(e.to_string()),
+                        }
+                    }
+                },
+                Popup::Status=>{ui.label(match self.launch.state(){LaunchState::Idle=>"Игра не запущена".into(),LaunchState::Preparing(s)=>s,LaunchState::Running=>"Minecraft работает".into(),LaunchState::Exited(c)=>format!("Код завершения: {c}"),LaunchState::Failed(e)=>e});}
+            }
+            if let Some(e)=&self.error{ui.colored_label(Color32::from_rgb(255,155,145),e);}
         });
-        let outside=ctx.input(|i|i.pointer.any_pressed())&&ctx.input(|i|i.pointer.interact_pos()).is_some_and(|p|!area.response.rect.contains(p)&&!anchor.contains(p));
-        if outside||ctx.input(|i|i.key_pressed(egui::Key::Escape)){self.profile_open=false;}
+        if !open{self.popup=None;self.error=None;}
     }
-}
-impl eframe::App for CaligoApp{
-    fn update(&mut self,ctx:&egui::Context,_frame:&mut eframe::Frame){self.render(ctx);}
-}
-fn profile_chip(
-    ui: &mut egui::Ui,
-    theme: &ThemePreset,
-    auth: &AuthManager,
-    play: &crate::ui::play::PlayState,
-    skin_mgr: &SkinManager,
-) -> egui::Response {
-    let label = match auth.state() {
-        AuthState::SignedIn(account) => account.username.clone(),
-        AuthState::WaitingForUser { .. } | AuthState::InProgress(_) => "Вход…".to_string(),
-        _ => {
-            let name = play.offline_name.trim();
-            if name.is_empty() {
-                "Войти".to_string()
-            } else {
-                name.to_string()
-            }
-        }
-    };
-    let style = &theme.modules.profile_chip;
-    let font = egui::FontId::proportional(13.0);
-    let galley = ui
-        .painter()
-        .layout_no_wrap(label, font, ui.visuals().text_color());
-    let h = style.height_or(32.0).clamp(28.0, 64.0);
-    let w = style.width_or(galley.size().x + 44.0).clamp(72.0, 190.0);
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(w, h), egui::Sense::click());
-    let hover = ui
-        .ctx()
-        .animate_bool(response.id.with("hover"), response.hovered());
-    let rounding = egui::Rounding::same(style.rounding_or(8.0));
-    let painter = ui.painter();
-    painter.rect_filled(rect, rounding, style.fill_or(egui::Color32::from_rgba_unmultiplied(17,30,46,150)));
-    if hover > 0.0 {
-        painter.rect_filled(
-            rect,
-            rounding,
-            egui::Color32::from_white_alpha((10.0 * hover) as u8),
-        );
-    }
-    // Мягкая обводка без «блика»: на тёмном фоне яркая кромка выглядела
-    // как белая рамка вокруг «Войти». Бортик настраивается.
-    let stroke = style.border_or(egui::Stroke::new(
-        1.0_f32,
-        egui::Color32::from_white_alpha(10),
-    ));
-    if stroke.width > 0.0 {
-        painter.rect_stroke(rect, rounding, stroke);
-    }
-    let head = egui::Rect::from_center_size(
-        egui::pos2(rect.min.x + 15.0, rect.center().y),
-        egui::vec2(16.0, 16.0),
-    );
-    skin::paint_head(painter, head, skin_mgr.texture().as_ref(), 4.0);
-    painter.galley(
-        egui::pos2(rect.min.x + 28.0, rect.center().y - galley.size().y / 2.0),
-        galley,
-        ui.visuals().text_color(),
-    );
-    response
-        .on_hover_text("Профиль")
-        .on_hover_cursor(egui::CursorIcon::PointingHand)
-}
-
-/// Содержимое мини-окна профиля.
-fn profile_window(
-    ui: &mut egui::Ui,
-    accent: egui::Color32,
-    auth: &AuthManager,
-    play: &mut crate::ui::play::PlayState,
-    skin_mgr: &SkinManager,
-) {
-    match auth.state() {
-        AuthState::SignedOut => {
-            ui.label(egui::RichText::new("Профиль").small().weak());
-            ui.add_space(8.0);
-            ui.add(
-                egui::TextEdit::singleline(&mut play.offline_name)
-                    .hint_text("Ник (оффлайн)")
-                    .desired_width(f32::INFINITY),
-            );
-            ui.add_space(8.0);
-            if ui
-                .add_sized(
-                    [ui.available_width(), 32.0],
-                    egui::Button::new("Войти через Microsoft"),
-                )
-                .clicked()
-            {
-                auth.start_login(ui.ctx().clone());
-            }
-            ui.add_space(6.0);
-            ui.label(
-                egui::RichText::new("Без входа доступен только оффлайн-режим")
-                    .weak()
-                    .size(11.0),
-            );
-        }
-        AuthState::WaitingForUser {
-            verification_uri,
-            user_code,
-        } => {
-            ui.label(egui::RichText::new("Открой ссылку и введи код:").size(13.0));
-            ui.hyperlink(&verification_uri);
-            ui.add_space(4.0);
-            ui.label(
-                egui::RichText::new(&user_code)
-                    .size(22.0)
-                    .monospace()
-                    .strong()
-                    .color(accent),
-            );
-            if ui.button("Скопировать код").clicked() {
-                ui.ctx().output_mut(|o| o.copied_text = user_code.clone());
-            }
-            ui.spinner();
-            ui.ctx()
-                .request_repaint_after(std::time::Duration::from_millis(500));
-        }
-        AuthState::InProgress(step) => {
-            ui.horizontal(|ui| {
+    fn profile(&mut self,ui:&mut egui::Ui){
+        match self.auth.state(){
+            AuthState::SignedOut=>{
+                ui.add(egui::TextEdit::singleline(&mut self.session.offline_name).hint_text("Ник для оффлайн-режима"));
+                if ui.button("Войти через Microsoft").clicked(){self.auth.start_login(ui.ctx().clone());}
+                ui.small("Без входа доступны только оффлайн-возможности.");
+            },
+            AuthState::WaitingForUser{verification_uri,user_code}=>{
+                ui.label("Открой ссылку и введи код:");ui.hyperlink(verification_uri);
+                ui.label(egui::RichText::new(&user_code).size(24.0).strong());
+                if ui.button("Скопировать код").clicked(){ui.ctx().output_mut(|o|o.copied_text=user_code);}
                 ui.spinner();
-                ui.label(egui::RichText::new(step).size(13.0));
-            });
-            ui.ctx()
-                .request_repaint_after(std::time::Duration::from_millis(500));
+            },
+            AuthState::InProgress(s)=>{ui.spinner();ui.label(s);},
+            AuthState::SignedIn(a)=>{ui.heading(a.username);if ui.button("Выйти").clicked(){self.auth.sign_out();}},
+            AuthState::Failed(e)=>{ui.colored_label(Color32::from_rgb(255,155,145),e);if ui.button("Повторить вход").clicked(){self.auth.start_login(ui.ctx().clone());}}
         }
-        AuthState::SignedIn(account) => {
-            ui.horizontal(|ui| {
-                let (head, _) =
-                    ui.allocate_exact_size(egui::vec2(36.0, 36.0), egui::Sense::hover());
-                skin::paint_head(ui.painter(), head, skin_mgr.texture().as_ref(), 8.0);
-                ui.add_space(4.0);
-                ui.vertical(|ui| {
-                    ui.colored_label(
-                        accent,
-                        egui::RichText::new(&account.username).strong().size(15.0),
-                    );
-                    ui.label(egui::RichText::new("Microsoft-аккаунт").weak().size(11.0));
-                });
-            });
-            ui.add_space(10.0);
-            if ui
-                .add_sized([ui.available_width(), 28.0], egui::Button::new("Выйти"))
-                .clicked()
-            {
-                auth.sign_out();
-            }
-        }
-        AuthState::Failed(err) => {
-            ui.colored_label(
-                egui::Color32::from_rgb(255, 120, 120),
-                egui::RichText::new(format!("Ошибка входа: {err}")).size(12.0),
-            );
-            ui.add_space(6.0);
-            if ui.button("Попробовать снова").clicked() {
-                auth.start_login(ui.ctx().clone());
-            }
-        }
+        if let Some(e)=self.skin.error(){ui.label(format!("Скин: {e}"));}
+    }
+    #[cfg(test)]
+    pub fn visual_fixture(ctx:&egui::Context,tab:Tab,populated:bool)->Self{
+        let mut a=Self::create(ctx,true);a.tab=tab;a.launch=LaunchManager::visual_fixture();
+        if populated{a.library=Library::fixture();}a
     }
 }
-
-/// Значки кнопок окна (Windows-стиль, справа).
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum WinGlyph {
-    Min,
-    Max,
-    Close,
-}
-
-/// Кнопка окна: монохромный штриховой значок, при наведении — мягкий
-/// круг подсветки («закрыть» подсвечивается красным, как в Windows).
-fn window_button(ui: &mut egui::Ui, glyph: WinGlyph, tooltip: &str, bar_h: f32) -> egui::Response {
-    let (rect, response) =
-        ui.allocate_exact_size(egui::vec2(40.0, bar_h), egui::Sense::click());
-    let hover = ui
-        .ctx()
-        .animate_bool(response.id.with("hover"), response.hovered());
-    let danger = glyph == WinGlyph::Close;
-    if hover > 0.0 {
-        let fill = if danger {
-            egui::Color32::from_rgba_unmultiplied(232, 17, 35, (255.0 * hover) as u8)
-        } else {
-            egui::Color32::from_white_alpha((16.0 * hover) as u8)
-        };
-        ui.painter().rect_filled(rect, 0.0, fill);
-    }
-    let color = if danger && hover > 0.4 {
-        egui::Color32::WHITE
-    } else {
-        ui.visuals().text_color()
-    };
-    let c = rect.center();
-    let stroke = egui::Stroke::new(1.2_f32, color);
-    match glyph {
-        WinGlyph::Min => {
-            ui.painter()
-                .line_segment([c + egui::vec2(-4.5, 0.0), c + egui::vec2(4.5, 0.0)], stroke);
-        }
-        WinGlyph::Max => {
-            ui.painter().rect_stroke(
-                egui::Rect::from_center_size(c, egui::vec2(9.0, 9.0)),
-                egui::Rounding::same(2.0),
-                stroke,
-            );
-        }
-        WinGlyph::Close => {
-            ui.painter().line_segment(
-                [c + egui::vec2(-4.5, -4.5), c + egui::vec2(4.5, 4.5)],
-                stroke,
-            );
-            ui.painter().line_segment(
-                [c + egui::vec2(-4.5, 4.5), c + egui::vec2(4.5, -4.5)],
-                stroke,
-            );
-        }
-    }
-    response
-        .on_hover_text(tooltip)
-        .on_hover_cursor(egui::CursorIcon::PointingHand)
-}
-
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum NavIcon {
-    Home,
-    Cube,
-    Sliders,
-}
-
-/// Рисует иконку навигации штрихами. При наведении слегка растёт.
-pub(crate) fn paint_nav_icon(
-    painter: &egui::Painter,
-    center: egui::Pos2,
-    icon: NavIcon,
-    color: egui::Color32,
-    hover: f32,
-) {
-    let s = 1.0 + hover * 0.08;
-    let stroke = egui::Stroke::new(1.5_f32, color);
-    let p = |x: f32, y: f32| center + egui::vec2(x * s, y * s);
-    match icon {
-        NavIcon::Home => {
-            // Домик: крыша, стены и дверной проём.
-            painter.line_segment([p(-7.0, 0.5), p(0.0, -6.5)], stroke);
-            painter.line_segment([p(0.0, -6.5), p(7.0, 0.5)], stroke);
-            painter.line_segment([p(-5.0, -0.5), p(-5.0, 6.5)], stroke);
-            painter.line_segment([p(5.0, -0.5), p(5.0, 6.5)], stroke);
-            painter.line_segment([p(-5.0, 6.5), p(-1.8, 6.5)], stroke);
-            painter.line_segment([p(1.8, 6.5), p(5.0, 6.5)], stroke);
-            painter.line_segment([p(-1.8, 6.5), p(-1.8, 2.8)], stroke);
-            painter.line_segment([p(1.8, 6.5), p(1.8, 2.8)], stroke);
-            painter.line_segment([p(-1.8, 2.8), p(1.8, 2.8)], stroke);
-        }
-        NavIcon::Cube => {
-            // Изометрический куб — «сборка» как блок Minecraft.
-            let top = p(0.0, -7.5);
-            let ne = p(6.5, -3.75);
-            let se = p(6.5, 3.75);
-            let bottom = p(0.0, 7.5);
-            let sw = p(-6.5, 3.75);
-            let nw = p(-6.5, -3.75);
-            let mid = p(0.0, 0.0);
-            for seg in [
-                [top, ne],
-                [ne, se],
-                [se, bottom],
-                [bottom, sw],
-                [sw, nw],
-                [nw, top],
-                [mid, nw],
-                [mid, ne],
-                [mid, bottom],
-            ] {
-                painter.line_segment(seg, stroke);
-            }
-        }
-        NavIcon::Sliders => {
-            // Три дорожки с бегунками на разных позициях.
-            for (dy, knob_x) in [(-5.0_f32, -2.0_f32), (0.0, 3.0), (5.0, -3.5)] {
-                painter.line_segment([p(-7.0, dy), p(7.0, dy)], stroke);
-                painter.circle_filled(p(knob_x, dy), 2.4 * s, color);
-            }
-        }
-    }
-}
-#[cfg(test)]
-impl CaligoApp {
-    pub fn visual_fixture(ctx: &egui::Context, tab: Tab, populated: bool) -> Self {
-        let mut app=Self::with_context(ctx);
-        app.tab=tab;
-        app.visual_test=true;
-        app.launch=LaunchManager::visual_fixture();
-        app.theme.modules.mist=false;
-        app.instances=ui::instances::InstancesState::fixture(if populated {
-            vec![
-                ui::instances::Instance{name:"Выживание".into(),version:"1.21.1".into()},
-                ui::instances::Instance{name:"Творческий мир".into(),version:"1.20.4".into()},
-            ]
-        }else{Vec::new()});
-        app
-    }
-}
+impl eframe::App for CaligoApp{fn update(&mut self,ctx:&egui::Context,_:&mut eframe::Frame){self.render(ctx)}}
