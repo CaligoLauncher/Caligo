@@ -211,7 +211,6 @@ pub fn shell(&mut self,ctx:&egui::Context,layout:&Layout,theme:&ThemePreset,acti
         if !w.action.is_navigation(){
             let mut child=ui.new_child(egui::UiBuilder::new().id_salt(("component",w.id)).max_rect(r));
             child.set_clip_rect(r.intersect(ui.clip_rect()));
-            child.style_mut().visuals.disabled_alpha=1.0;
             child.add_enabled_ui(!self.active(),|ui|content(ui,w));
             return None
         }
