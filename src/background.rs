@@ -1,14 +1,4 @@
-//! Фоновое изображение, «жидкое стекло» и виньетка.
-//!
-//! Из одной картинки готовятся две текстуры: обычная и заранее размытая.
-//! Панели рисуются поверх среза размытой версии (с нужным скруглением) —
-//! на статичном фоне это неотличимо от настоящего live-blur.
-//! По доктрине Liquid Glass (macOS Tahoe) regular-стекло не только
-//! размывает фон, но и подстраивает его ЯРКОСТЬ, чтобы контент поверх
-//! оставался читаемым — поэтому поверх каждого среза кладётся
-//! люминантный слой под тему. Виньетка по краям добавляет глубины.
-//! Настоящий blur-шейдер (wgpu) — апгрейд на этапе финальной полировки.
-
+//! Wallpaper and cached local wallpaper blur. Not desktop or live layer blur.
 use std::path::PathBuf;
 
 use eframe::egui;
@@ -21,22 +11,10 @@ pub struct Background {
 }
 
 impl Background {
-    fn empty() -> Self {
-        Self {
-            normal: None,
-            blurred: None,
-        }
-    }
-
-    /// Ищет background.(png|jpg|jpeg) в папке данных лаунчера
-    /// (APPDATA/.caligo) и готовит обычную + размытую текстуры.
+    /// Static wallpaper blur is cached once, not a live framebuffer effect.
     pub fn load(ctx: &egui::Context) -> Self {
-        let Some(path) = find_background() else {
-            return Self::empty();
-        };
-        let Ok(img) = image::open(&path) else {
-            return Self::empty();
-        };
+        let img=find_background().and_then(|p|image::open(p).ok())
+            .unwrap_or_else(||image::DynamicImage::ImageRgba8(crate::rpg_scene::wallpaper()));
         // Ограничиваем размер: меньше памяти, быстрее blur.
         let img = img.thumbnail(1920, 1920);
         let rgba = img.to_rgba8();
@@ -54,6 +32,19 @@ impl Background {
                 egui::TextureOptions::LINEAR,
             )),
         }
+    }
+
+    pub fn surface(&self,p:&egui::Painter,rect:egui::Rect,radius:f32,fill:egui::Color32,blur:bool) {
+        if blur {
+            if let (Some(normal),Some(blurred))=(&self.normal,&self.blurred){
+                let screen=p.ctx().screen_rect();
+                let mut shape=egui::epaint::RectShape::new(rect,egui::Rounding::same(radius),egui::Color32::WHITE,egui::Stroke::NONE);
+                shape.fill_texture_id=blurred.id();
+                shape.uv=sub_uv(cover_uv(normal.size_vec2(),screen),screen,rect);
+                p.add(shape);
+            }
+        }
+        p.rect_filled(rect,radius,fill);
     }
 
     /// Рисует фон на весь экран, размытые срезы (с закруглениями)

@@ -85,6 +85,7 @@ fn visual_review_screens(){
         let ctx=egui::Context::default();
         ctx.set_pixels_per_point(1.0);
         let mut app=CaligoApp::visual_fixture(&ctx,tab,populated);
+        app.editor.document=crate::composition::Document::default();
         let mut textures=HashMap::new();
         let mut last=None;
         for i in 0..4{
@@ -113,6 +114,7 @@ fn sidebar_navigation_works_at_both_window_sizes() {
     for (w,h) in [(1000.0,620.0),(720.0,440.0)] {
         let ctx=egui::Context::default();
         let mut app=CaligoApp::visual_fixture(&ctx,Tab::Home,false);
+        app.editor.document=crate::composition::Document::legacy();
         let screen=egui::Rect::from_min_size(egui::Pos2::ZERO,egui::vec2(w,h));
         let frame=|app:&mut CaligoApp,events:Vec<egui::Event>|{
             let _=ctx.run(egui::RawInput{screen_rect:Some(screen),events,..Default::default()},|ctx|app.render(ctx));
@@ -150,6 +152,7 @@ fn drag_to(ctx:&egui::Context,app:&mut CaligoApp,start:egui::Pos2,end:egui::Pos2
 #[test]
 fn edit_mode_real_pointer_move_undo_cancel_and_navigation(){
     let ctx=egui::Context::default();let mut app=CaligoApp::visual_fixture(&ctx,Tab::Home,false);
+        app.editor.document=crate::composition::Document::legacy();
     let original=app.editor.document.clone();
     app.editor.begin();
     for _ in 0..4{editor_frame(&ctx,&mut app,vec![]);}
@@ -188,6 +191,7 @@ fn edit_mode_real_pointer_move_undo_cancel_and_navigation(){
 #[test]
 fn free_position_and_editor_selection_do_not_launch_game(){
     let ctx=egui::Context::default();let mut app=CaligoApp::visual_fixture(&ctx,Tab::Home,false);
+        app.editor.document=crate::composition::Document::legacy();
     app.editor.begin();
     for _ in 0..4{editor_frame(&ctx,&mut app,vec![]);}
     let start=app.editor.rects.iter().find(|(id,_)|*id==3).unwrap().1.center();
@@ -201,6 +205,7 @@ fn free_position_and_editor_selection_do_not_launch_game(){
 #[test]
 fn panel_resize_pointer_and_restart_preserve_navigation(){
     let ctx=egui::Context::default();let mut app=CaligoApp::visual_fixture(&ctx,Tab::Home,false);
+        app.editor.document=crate::composition::Document::legacy();
     app.editor.begin();
     for _ in 0..4{editor_frame(&ctx,&mut app,vec![]);}
     click(&ctx,&mut app,egui::pos2(40.0,400.0));
@@ -233,6 +238,7 @@ fn visual_review_editor_screens(){
     ]{
         let ctx=egui::Context::default();ctx.set_pixels_per_point(1.0);
         let mut app=CaligoApp::visual_fixture(&ctx,Tab::Home,false);
+        app.editor.document=crate::composition::Document::legacy();
         if custom{
             let p=app.editor.document.add_panel(Edge::Top,Position::default());
             app.editor.document.move_widget(3,Some(p),None,Position::default());
@@ -265,7 +271,8 @@ fn visual_review_editor_screens(){
 }
 #[test]
 fn toolbar_controls_do_not_overlap_at_minimum_width(){
-    let ctx=egui::Context::default();let mut app=CaligoApp::visual_fixture(&ctx,Tab::Home,false);app.editor.begin();
+    let ctx=egui::Context::default();let mut app=CaligoApp::visual_fixture(&ctx,Tab::Home,false);
+        app.editor.document=crate::composition::Document::legacy();app.editor.begin();
     for _ in 0..4{
         let _=ctx.run(egui::RawInput{screen_rect:Some(egui::Rect::from_min_size(egui::Pos2::ZERO,egui::vec2(720.0,440.0))),..Default::default()},|ctx|app.render(ctx));
     }
@@ -279,6 +286,7 @@ fn toolbar_controls_do_not_overlap_at_minimum_width(){
 fn workspace_components_are_real_independent_nodes(){
     use crate::composition::Action;
     let ctx=egui::Context::default();let mut app=CaligoApp::visual_fixture(&ctx,Tab::Home,true);
+        app.editor.document=crate::composition::Document::legacy();
     for _ in 0..4{editor_frame(&ctx,&mut app,vec![]);}
     let find=|app:&CaligoApp,kind|app.editor.document.widgets.iter().find(|w|w.action==kind&&w.page==Some(Action::Home)).unwrap().id;
     let launch=find(&app,Action::Launch);let version=find(&app,Action::Version);
@@ -305,6 +313,7 @@ fn workspace_components_are_real_independent_nodes(){
 fn component_page_visibility_and_minimum_window_do_not_mutate_layout(){
     use crate::composition::Action;
     let ctx=egui::Context::default();let mut app=CaligoApp::visual_fixture(&ctx,Tab::Home,true);
+        app.editor.document=crate::composition::Document::legacy();
     let initial=app.editor.document.clone();
     for tab in [Tab::Home,Tab::Instances,Tab::Settings]{
         app.tab=tab;
@@ -334,7 +343,7 @@ fn schema_one_migration_preserves_original_files_and_navigation(){
     let bytes=serde_json::to_vec(&serde_json::json!({"generation":1,"document":raw})).unwrap();
     std::fs::write(dir.join("interface-a.json"),&bytes).unwrap();
     let (g,doc)=crate::composition::load(&dir).unwrap().unwrap();
-    assert_eq!(g,1);assert_eq!(doc.version,2);assert_eq!(doc.widgets[1].label,"Старые сборки");
+    assert_eq!(g,1);assert_eq!(doc.version,crate::composition::VERSION);assert_eq!(doc.widgets[1].label,"Старые сборки");
     assert!(doc.widgets.iter().any(|w|w.action==crate::composition::Action::Launch));
     assert_eq!(std::fs::read(dir.join("interface-a.json")).unwrap(),bytes,"reading must not persist migration");
     crate::composition::save(&dir,g,&doc).unwrap();
@@ -346,6 +355,7 @@ fn schema_one_migration_preserves_original_files_and_navigation(){
 fn flow_resize_changes_actual_width_and_library_selects_actual_version(){
     use crate::composition::Action;
     let ctx=egui::Context::default();let mut app=CaligoApp::visual_fixture(&ctx,Tab::Home,true);
+        app.editor.document=crate::composition::Document::legacy();
     app.editor.begin();
     for _ in 0..4{editor_frame(&ctx,&mut app,vec![]);}
     let id=app.editor.document.widgets.iter().find(|w|w.action==Action::Launch).unwrap().id;
@@ -380,6 +390,7 @@ fn visual_review_launch_component_and_create_dialog(){
     ] {
         let ctx=egui::Context::default();ctx.set_pixels_per_point(1.0);
         let mut app=CaligoApp::visual_fixture(&ctx,Tab::Home,true);
+        app.editor.document=crate::composition::Document::default();
         if editing{
             let node=app.editor.document.widgets.iter_mut().find(|w|w.action==Action::Launch).unwrap();
             node.flow=false;node.size=[200.0,48.0];
@@ -422,4 +433,102 @@ fn responsive_flow_has_no_overlap_and_keeps_requested_geometry(){
         }
     }
     assert_eq!(doc,crate::composition::Document::default());
+}#[test]
+fn rpg_actual_launch_moves_live_and_resizes_without_running() {
+    use crate::composition::{Action,Document};
+    let ctx=egui::Context::default();
+    let mut app=CaligoApp::visual_fixture(&ctx,Tab::Home,false);
+    app.editor.document=Document::preset(3);
+    app.editor.begin();
+    for _ in 0..4{editor_frame(&ctx,&mut app,vec![]);}
+    let id=app.editor.document.widgets.iter().find(|w|w.action==Action::Launch).unwrap().id;
+    let initial=app.editor.document.clone();
+    let start=app.editor.rects.iter().find(|(i,_)|*i==id).unwrap().1.center();
+    pointer(&ctx,&mut app,start,true);
+    editor_frame(&ctx,&mut app,vec![egui::Event::PointerMoved(start+egui::vec2(9.0,0.0))]);
+    let dest=start-egui::vec2(110.0,40.0);
+    editor_frame(&ctx,&mut app,vec![egui::Event::PointerMoved(dest)]);
+    editor_frame(&ctx,&mut app,vec![egui::Event::PointerMoved(dest)]);
+    let during=app.editor.rects.iter().find(|(i,_)|*i==id).unwrap().1.center();
+    assert!(during.distance(start)>80.0,"actual button must move before release");
+    assert!(matches!(app.launch.state(),crate::launch::LaunchState::Idle));
+    pointer(&ctx,&mut app,dest,false);
+    for _ in 0..3{editor_frame(&ctx,&mut app,vec![]);}
+    let node=app.editor.document.widgets.iter().find(|w|w.id==id).unwrap();
+    assert!(node.relative.is_none()&&node.panel.is_none());
+    let before_size=node.size;
+    let handle=app.editor.controls.iter().find(|(n,_)|*n=="resize").unwrap().1.center();
+    drag_to(&ctx,&mut app,handle,handle+egui::vec2(30.0,20.0));
+    let node=app.editor.document.widgets.iter().find(|w|w.id==id).unwrap();
+    assert!(node.size[0]>before_size[0]+20.0&&node.size[1]>before_size[1]+10.0);
+    app.editor.test_select(id);
+    for _ in 0..4{editor_frame(&ctx,&mut app,vec![]);}
+    let radius=app.editor.controls.iter().find(|(n,_)|*n=="rounding").unwrap().1;
+    click(&ctx,&mut app,radius.left_center()+egui::vec2(70.0,0.0));
+    assert!(app.editor.document.widgets.iter().find(|w|w.id==id).unwrap().style.rounding.is_some());
+    assert_eq!(app.editor.document.widgets.iter().find(|w|w.action==Action::Version).unwrap().style.rounding,None);
+    app.editor.cancel();assert_eq!(app.editor.document,initial);
+}
+#[test]
+fn rpg_draws_panel_with_pointer_rectangle() {
+    let ctx=egui::Context::default();
+    let mut app=CaligoApp::visual_fixture(&ctx,Tab::Home,false);
+    app.editor.begin();
+    for _ in 0..4{editor_frame(&ctx,&mut app,vec![]);}
+    let add=app.editor.controls.iter().find(|(n,_)|*n=="add_panel").unwrap().1.center();
+    click(&ctx,&mut app,add);
+    drag_to(&ctx,&mut app,egui::pos2(60.0,180.0),egui::pos2(320.0,290.0));
+    assert_eq!(app.editor.document.panels.len(),2);
+    let panel=app.editor.document.panels.last().unwrap();
+    assert_eq!(panel.edge,Edge::Float);
+    assert!((panel.size[0]-260.0).abs()<2.0&&(panel.size[1]-110.0).abs()<2.0);
+    assert!(app.editor.document.validate().is_ok());
+}
+#[test]
+fn rpg_navigation_replaces_character_and_launch_at_all_sizes() {
+    use crate::composition::{Action,Document};
+    for preset in [1,3,6]{
+        for (width,height) in [(1000.0,620.0),(720.0,440.0)]{
+            let ctx=egui::Context::default();
+            let mut app=CaligoApp::visual_fixture(&ctx,Tab::Home,false);
+            app.editor.document=Document::preset(preset);
+            let screen=egui::Rect::from_min_size(egui::Pos2::ZERO,egui::vec2(width,height));
+            let frame=|app:&mut CaligoApp,events:Vec<egui::Event>|{
+                let _=ctx.run(egui::RawInput{screen_rect:Some(screen),events,..Default::default()},|ctx|app.render(ctx));
+            };
+            for _ in 0..4{frame(&mut app,vec![]);}
+            let home:Vec<_>=app.editor.document.widgets.iter().filter(|w|matches!(w.action,Action::Character|Action::Launch)).map(|w|w.id).collect();
+            assert!(home.iter().all(|id|app.editor.rects.iter().any(|(i,_)|i==id)));
+            let p=app.editor.rects.iter().find(|(i,_)|*i==3).unwrap().1.center();
+            for pressed in [true,false]{frame(&mut app,vec![egui::Event::PointerMoved(p),egui::Event::PointerButton{pos:p,button:egui::PointerButton::Primary,pressed,modifiers:Default::default()}]);}
+            for _ in 0..2{frame(&mut app,vec![]);}
+            assert_eq!(app.tab,Tab::Instances);
+            assert!(home.iter().all(|id|!app.editor.rects.iter().any(|(i,_)|i==id)));
+        }
+    }
+}
+#[test]
+fn visual_review_rpg_presets(){
+    for preset in [1,3,6]{
+        for (w,h) in [(1000,620),(720,440)]{
+            let ctx=egui::Context::default();
+            let mut app=CaligoApp::visual_fixture(&ctx,Tab::Home,false);
+            app.editor.document=crate::composition::Document::preset(preset);
+            let mut textures=HashMap::new();let mut last=None;
+            for i in 0..4 {
+                let out=ctx.run(egui::RawInput{screen_rect:Some(egui::Rect::from_min_size(egui::Pos2::ZERO,egui::vec2(w as f32,h as f32))),time:Some(i as f64/10.0),..Default::default()},|ctx|app.render(ctx));
+                apply_delta(&mut textures,&out.textures_delta);last=Some(out);
+            }
+            let png=raster(&ctx,last.unwrap(),&textures,w,h);
+            let mut buf=Cursor::new(Vec::new());
+            image::DynamicImage::ImageRgba8(png).write_to(&mut buf,image::ImageFormat::Png).unwrap();
+            if std::env::var("CI").is_ok(){
+                let data=base64::engine::general_purpose::STANDARD.encode(buf.into_inner());
+                let mut stdout=std::io::stdout().lock();
+                writeln!(stdout,"CALIGO_VISUAL_BEGIN rpg_{preset:02}_{w}").unwrap();
+                for chunk in data.as_bytes().chunks(6000){writeln!(stdout,"CALIGO_VISUAL_DATA {}",std::str::from_utf8(chunk).unwrap()).unwrap();}
+                writeln!(stdout,"CALIGO_VISUAL_END rpg_{preset:02}_{w}").unwrap();
+            }
+        }
+    }
 }

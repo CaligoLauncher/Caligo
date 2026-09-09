@@ -9,19 +9,27 @@ pub enum Intent { Launch,Profile,Home,Create }
 
 pub fn show(ui:&mut egui::Ui,w:&Widget,theme:&mut ThemePreset,auth:&AuthManager,
     play:&mut PlayState,launch:&LaunchManager,skin_mgr:&SkinManager,instances:&mut InstancesState,
-    settings:&mut SettingsState)->Option<Intent>{
+    settings:&mut SettingsState,background:&crate::background::Background,wallpaper:bool)->Option<Intent>{
     let mut intent=None;
     let look=theme.clone();
-    let bare=matches!(w.action,Action::Heading|Action::Launch|Action::LibrarySearch|Action::CreateInstance|Action::Status);
+    let bare=matches!(w.action,Action::Character|Action::Cover|Action::Selection|Action::Heading|Action::Launch|Action::LibrarySearch|Action::CreateInstance|Action::Status);
     let padding=if bare{0.0}else{16.0};
     let fill=w.style.fill.map(crate::theme::color_arr).unwrap_or(if bare{egui::Color32::TRANSPARENT}else{look.surface(2)});
     let rect=ui.max_rect();
-    if w.action!=Action::Launch{ui.painter().rect_filled(rect,w.style.rounding.unwrap_or(look.rounding),fill);}
+    if w.action!=Action::Launch{background.surface(ui.painter(),rect,w.style.rounding.unwrap_or(look.rounding),fill,w.style.blur&&wallpaper);}
     let padding=if w.action==Action::Version{8.0}else{padding};
     let inner=rect.shrink(padding);
     let mut component=ui.new_child(egui::UiBuilder::new().id_salt(("component_body",w.id)).max_rect(inner));
     component.set_clip_rect(inner.intersect(ui.clip_rect()));
     component.scope(|ui|{
+        if w.action==Action::Character {
+            skin::paint_paperdoll(ui.painter(),inner,skin_mgr.texture().as_ref(),None,look.accent_color(),0.0);
+            return
+        }
+        if w.action==Action::Cover {
+            crate::rpg_scene::cover(ui.painter(),inner,w.style.rounding.unwrap_or(14.0));
+            return
+        }
         if w.action==Action::Launch {
             if play::launch_button(ui,&look,w,play,launch){intent=Some(Intent::Launch);}
             return

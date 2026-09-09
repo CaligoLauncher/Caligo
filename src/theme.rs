@@ -36,14 +36,14 @@ pub struct ThemePreset {
 impl Default for ThemePreset {
     fn default() -> Self {
         Self {
-            name: "Caligo Neutral".to_string(),
+            name: "Caligo Horizon".to_string(),
             dark: true,
             rounding: 8.0,
-            background: [25, 25, 27, 255],
+            background: [17, 30, 46, 255],
             // Светлый голубой для тёмной темы: насыщенный «средний» синий
             // на тёмном фоне тускнеет — тёмные темы (Modrinth) используют
             // осветлённый тон акцента.
-            accent: [79, 156, 255, 255],
+            accent: [169, 209, 225, 255],
             opacity: 1.0,
             modules: ModuleStyles::default(),
         }
@@ -104,7 +104,7 @@ impl ThemePreset {
     /// так заголовки выигрывают контрастом и интерфейс не «звенит».
     pub fn text_body(&self) -> egui::Color32 {
         if self.dark {
-            egui::Color32::from_rgb(186, 186, 191)
+            egui::Color32::from_rgb(205, 220, 228)
         } else {
             egui::Color32::from_rgb(44, 46, 49)
         }
@@ -113,7 +113,7 @@ impl ThemePreset {
     /// Вторичный текст: подписи, подсказки, метаданные.
     pub fn text_tertiary(&self) -> egui::Color32 {
         if self.dark {
-            egui::Color32::from_rgb(155, 155, 163)
+            egui::Color32::from_rgb(171, 191, 204)
         } else {
             egui::Color32::from_rgb(72, 77, 84)
         }

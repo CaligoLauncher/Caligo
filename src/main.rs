@@ -1,3 +1,4 @@
+mod rpg_scene;
 mod workspace;
 mod app;
 mod composition;

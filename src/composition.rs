@@ -5,12 +5,12 @@ use serde::{Deserialize,Serialize};
 use std::{collections::HashSet,fs,io::{Read,Write},path::Path};
 
 pub type NodeId=u64;
-pub const VERSION:u32=2;
+pub const VERSION:u32=3;
 const MAX_BYTES:u64=256*1024;
 #[derive(Clone,Copy,Debug,Serialize,Deserialize,PartialEq,Eq,Hash)]
-pub enum Action { Home,Library,Settings,Profile,Heading,Selection,Version,Launch,Status,LibrarySearch,CreateInstance,LibraryList,Account,Appearance,Atmosphere,ThemeJson,LegacyStyles }
+pub enum Action { Character,Cover,Home,Library,Settings,Profile,Heading,Selection,Version,Launch,Status,LibrarySearch,CreateInstance,LibraryList,Account,Appearance,Atmosphere,ThemeJson,LegacyStyles }
 impl Action {
-    pub fn label(self)->&'static str {match self {Self::Home=>"Главная",Self::Library=>"Сборки",Self::Settings=>"Настройки",Self::Profile=>"Профиль",Self::Heading=>"Заголовок",Self::Selection=>"Выбранная сборка",Self::Version=>"Версия Minecraft",Self::Launch=>"Играть",Self::Status=>"Состояние игры",Self::LibrarySearch=>"Поиск сборок",Self::CreateInstance=>"Создать сборку",Self::LibraryList=>"Список сборок",Self::Account=>"Аккаунт и скин",Self::Appearance=>"Оформление",Self::Atmosphere=>"Фон и атмосфера",Self::ThemeJson=>"JSON-тема",Self::LegacyStyles=>"Совместимость тем"}}
+    pub fn label(self)->&'static str {match self {Self::Character=>"Персонаж",Self::Cover=>"Обложка",Self::Home=>"Главная",Self::Library=>"Сборки",Self::Settings=>"Настройки",Self::Profile=>"Профиль",Self::Heading=>"Заголовок",Self::Selection=>"Выбранная сборка",Self::Version=>"Версия Minecraft",Self::Launch=>"Играть",Self::Status=>"Состояние игры",Self::LibrarySearch=>"Поиск сборок",Self::CreateInstance=>"Создать сборку",Self::LibraryList=>"Список сборок",Self::Account=>"Аккаунт и скин",Self::Appearance=>"Оформление",Self::Atmosphere=>"Фон и атмосфера",Self::ThemeJson=>"JSON-тема",Self::LegacyStyles=>"Совместимость тем"}}
 }
 #[derive(Clone,Copy,Debug,Serialize,Deserialize,PartialEq,Eq)]
 pub enum Edge { Left,Right,Top,Bottom,Float }
@@ -42,16 +42,18 @@ impl Position {
     }
 }
 #[derive(Clone,Debug,Default,Serialize,Deserialize,PartialEq)]
-pub struct Style {pub rounding:Option<f32>,pub fill:Option<[u8;4]>}
+pub struct Style {pub rounding:Option<f32>,pub fill:Option<[u8;4]>,#[serde(default)] pub blur:bool}
 #[derive(Clone,Debug,Serialize,Deserialize,PartialEq)]
 pub struct Panel {
     pub id:NodeId,pub edge:Edge,pub size:[f32;2],pub position:Position,
     pub vertical:bool,pub style:Style,
+    #[serde(default)] pub relative:Option<[f32;4]>,
 }
 #[derive(Clone,Debug,Serialize,Deserialize,PartialEq)]
 pub struct Widget {
     pub id:NodeId,pub action:Action,pub label:String,pub panel:Option<NodeId>,
     pub position:Position,pub size:[f32;2],pub style:Style,pub bottom:bool,
+    #[serde(default)] pub relative:Option<[f32;4]>,
     #[serde(default)] pub page:Option<Action>,
     #[serde(default)] pub flow:bool,
     #[serde(default="default_span")] pub span:u8,
@@ -61,14 +63,14 @@ pub struct Document {
     pub version:u32,pub next_id:NodeId,pub panels:Vec<Panel>,pub widgets:Vec<Widget>,
     pub background:Option<[u8;4]>,
 }
-impl Default for Document {
-    fn default()->Self {
+impl Document {
+    pub fn legacy()->Self {
         let mut d=Self{version:VERSION,next_id:5,background:None,
-            panels:vec![Panel{id:1,edge:Edge::Left,size:[76.0,64.0],position:Position::default(),vertical:true,style:Style::default()}],
+            panels:vec![Panel{id:1,edge:Edge::Left,size:[76.0,64.0],position:Position::default(),vertical:true,relative:None,style:Style::default()}],
             widgets:vec![
-                Widget{id:2,action:Action::Home,label:"Главная".into(),panel:Some(1),position:Position::default(),size:[160.0,44.0],style:Style::default(),bottom:false,page:None,flow:false,span:12},
-                Widget{id:3,action:Action::Library,label:"Сборки".into(),panel:Some(1),position:Position::default(),size:[160.0,44.0],style:Style::default(),bottom:false,page:None,flow:false,span:12},
-                Widget{id:4,action:Action::Settings,label:"Настройки".into(),panel:Some(1),position:Position::default(),size:[160.0,44.0],style:Style::default(),bottom:true,page:None,flow:false,span:12},
+                Widget{id:2,action:Action::Home,label:"Главная".into(),panel:Some(1),position:Position::default(),size:[160.0,44.0],style:Style::default(),bottom:false,relative:None,page:None,flow:false,span:12},
+                Widget{id:3,action:Action::Library,label:"Сборки".into(),panel:Some(1),position:Position::default(),size:[160.0,44.0],style:Style::default(),bottom:false,relative:None,page:None,flow:false,span:12},
+                Widget{id:4,action:Action::Settings,label:"Настройки".into(),panel:Some(1),position:Position::default(),size:[160.0,44.0],style:Style::default(),bottom:true,relative:None,page:None,flow:false,span:12},
             ]};
         d.add_default_content();d
     }
@@ -85,8 +87,8 @@ impl Document {
         fn dimensions(s:[f32;2])->bool {s.iter().all(|n|n.is_finite()&&*n>=32.0&&*n<=2000.0)}
         fn position(p:Position)->bool {p.offset.iter().all(|n|n.is_finite()&&*n>=0.0&&*n<=100_000.0)}
         fn style(s:&Style)->bool {s.rounding.is_none_or(|r|r.is_finite()&&(0.0..=100.0).contains(&r))}
-        if self.panels.iter().any(|p|!dimensions(p.size)||!position(p.position)||!style(&p.style)) ||
-           self.widgets.iter().any(|w|!dimensions(w.size)||!position(w.position)||!style(&w.style)||!(1..=12).contains(&w.span)||w.page.is_some_and(|p|!matches!(p,Action::Home|Action::Library|Action::Settings))||w.label.chars().count()>80||w.label.chars().any(char::is_control)||
+        if self.panels.iter().any(|p|!valid_relative(p.relative)||!dimensions(p.size)||!position(p.position)||!style(&p.style)) ||
+           self.widgets.iter().any(|w|!valid_relative(w.relative)||!dimensions(w.size)||!position(w.position)||!style(&w.style)||!(1..=12).contains(&w.span)||w.page.is_some_and(|p|!matches!(p,Action::Home|Action::Library|Action::Settings))||w.label.chars().count()>80||w.label.chars().any(char::is_control)||
                w.panel.is_some_and(|id|!self.panels.iter().any(|p|p.id==id))) {
             return Err("Некорректные размеры, стиль, подпись или родитель".into())
         }
@@ -95,12 +97,12 @@ impl Document {
     pub fn add_panel(&mut self,edge:Edge,position:Position)->NodeId {
         let id=self.next_id;self.next_id+=1;
         self.panels.push(Panel{id,edge,position,size:if edge==Edge::Float{[320.0,100.0]}else{[184.0,72.0]},
-            vertical:matches!(edge,Edge::Left|Edge::Right),style:Style::default()});id
+            vertical:matches!(edge,Edge::Left|Edge::Right),relative:None,style:Style::default()});id
     }
     pub fn add_widget(&mut self,action:Action)->NodeId {
         let id=self.next_id;self.next_id+=1;
         self.widgets.push(Widget{id,action,label:action.label().into(),panel:None,position:Position::default(),
-            size:[160.0,44.0],style:Style::default(),bottom:false,page:None,flow:false,span:12});id
+            size:[160.0,44.0],style:Style::default(),bottom:false,relative:None,page:None,flow:false,span:12});id
     }
     pub fn remove(&mut self,id:NodeId) {
         self.panels.retain(|p|p.id!=id);
@@ -109,7 +111,7 @@ impl Document {
     pub fn move_widget(&mut self,id:NodeId,parent:Option<NodeId>,before:Option<NodeId>,position:Position) {
         if parent.is_some_and(|p|!self.panels.iter().any(|x|x.id==p)){return}
         let Some(i)=self.widgets.iter().position(|w|w.id==id)else{return};
-        let mut w=self.widgets.remove(i);w.panel=parent;w.position=position;w.bottom=false;w.flow=false;
+        let mut w=self.widgets.remove(i);w.panel=parent;w.position=position;w.bottom=false;w.flow=false;w.relative=None;
         let at=before.and_then(|b|self.widgets.iter().position(|w|w.id==b&&w.panel==parent)).unwrap_or(self.widgets.len());
         self.widgets.insert(at,w);
     }
@@ -136,7 +138,7 @@ impl Layout {
             panels.push((p.id,r));
         }
         for p in doc.panels.iter().filter(|p|p.edge==Edge::Float){
-            panels.push((p.id,p.position.rect(bounds,vec2(p.size[0],p.size[1]))));
+            panels.push((p.id,placed_rect(p.position,p.size,p.relative,bounds)));
         }
         Self{panels,content:available,bounds}
     }
@@ -158,9 +160,10 @@ pub fn load(dir:&Path)->Result<Option<(u64,Document)>,String>{
             // Inspect the version BEFORE typed parsing: a future widget enum may
             // not deserialize, but that must never make its file overwriteable.
             let version=raw.get("document").and_then(|d|d.get("version")).and_then(|v|v.as_u64());
-            if version.is_some_and(|v|v!=1&&v!=VERSION as u64){return Err(format!("FUTURE: версия {}",version.unwrap()))}
+            if version.is_some_and(|v|v!=1&&v!=2&&v!=VERSION as u64){return Err(format!("FUTURE: версия {}",version.unwrap()))}
             let mut snap:Snapshot=serde_json::from_value(raw).map_err(|e|e.to_string())?;
             if snap.document.version==1{snap.document=snap.document.migrate_v1();}
+            if snap.document.version==2{snap.document.version=VERSION;}
             snap.document.validate()?;Ok(snap)
         })();
         match result {Ok(s)=>valid.push(s),Err(e)=>{if e.starts_with("FUTURE:"){return Err(e)}errors.push(e);}}
@@ -265,7 +268,7 @@ mod tests {
 impl Action {
     pub fn is_navigation(self)->bool {matches!(self,Self::Home|Self::Library|Self::Settings|Self::Profile)}
     pub fn components()->&'static [Action] {
-        &[Self::Heading,Self::Selection,Self::Version,Self::Launch,Self::Status,Self::LibrarySearch,Self::CreateInstance,Self::LibraryList,Self::Account,Self::Appearance,Self::Atmosphere,Self::ThemeJson,Self::LegacyStyles]
+        &[Self::Character,Self::Cover,Self::Heading,Self::Selection,Self::Version,Self::Launch,Self::Status,Self::LibrarySearch,Self::CreateInstance,Self::LibraryList,Self::Account,Self::Appearance,Self::Atmosphere,Self::ThemeJson,Self::LegacyStyles]
     }
 }
 impl Document {
@@ -325,4 +328,84 @@ pub fn flow_rects(widgets:&[Widget],bounds:Rect)->Vec<(NodeId,Rect)> {
         x+=width+gap;used+=span;row_h=row_h.max(w.size[1]);
     }
     out
+}/// Built-in layouts are documents, not alternate renderers.
+/// Choosing a preset is an editor transaction; loading an older document never
+/// silently replaces its layout.
+impl Default for Document {
+    fn default()->Self { Self::preset(3) }
+}
+impl Document {
+    pub fn preset(kind:u8)->Self {
+        use Action::*;
+        let mut d=Self::legacy();
+        d.widgets.retain(|w|w.page!=Some(Home));
+        let panel=&mut d.panels[0];
+        panel.edge=Edge::Float;
+        panel.vertical=kind==1;
+        panel.relative=Some(if kind==1{[0.025,0.18,0.075,0.64]}else{[0.30,0.88,0.40,0.10]});
+        panel.style=Style{rounding:Some(18.0),fill:Some([17,30,46,170]),blur:true};
+        for w in &mut d.widgets {
+            if w.panel==Some(1){w.size=[116.0,46.0];w.bottom=kind==1&&w.action==Settings;}
+            if matches!(w.action,LibraryList|Appearance|Atmosphere|ThemeJson|LegacyStyles) {
+                w.style.fill=Some([17,30,46,185]);w.style.rounding=Some(16.0);w.style.blur=true;
+            }
+        }
+        let nodes=if kind==6 {
+            vec![(Character,[0.37,0.03,0.26,0.44]),(Cover,[0.70,0.16,0.23,0.22]),
+                (Selection,[0.32,0.49,0.36,0.11]),(Version,[0.32,0.63,0.17,0.09]),
+                (Launch,[0.51,0.63,0.17,0.09]),(Status,[0.32,0.75,0.36,0.07])]
+        }else{
+            vec![(Character,[0.18,0.12,0.30,0.65]),(Cover,[0.60,0.13,0.30,0.23]),
+                (Selection,[0.60,0.39,0.31,0.12]),(Version,[0.60,0.54,0.31,0.08]),
+                (Launch,[0.60,0.65,0.31,0.10]),(Status,[0.60,0.77,0.31,0.07])]
+        };
+        for (action,relative) in nodes {
+            d.add_widget(action);
+            let w=d.widgets.last_mut().unwrap();
+            w.page=Some(Home);w.relative=Some(relative);w.size=[240.0,56.0];
+            if action==Version{w.style.fill=Some([17,30,46,165]);w.style.blur=true;}
+        }
+        d
+    }
+}
+/// Normalized preset rectangles adapt without rewriting their saved data.
+/// Direct manipulation detaches only the manipulated instance to pixel geometry.
+pub fn placed_rect(position:Position,size:[f32;2],relative:Option<[f32;4]>,bounds:Rect)->Rect {
+    if let Some([x,y,w,h])=relative {
+        let size=vec2((bounds.width()*w).max(32.0),(bounds.height()*h).max(32.0)).min(bounds.size());
+        let rect=Rect::from_min_size(bounds.min+vec2(bounds.width()*x,bounds.height()*y),size);
+        return Position::from_rect(rect,bounds,false).rect(bounds,size)
+    }
+    position.rect(bounds,vec2(size[0],size[1]))
+}
+fn valid_relative(value:Option<[f32;4]>)->bool {
+    value.is_none_or(|r|r.iter().all(|n|n.is_finite()&&(0.0..=1.0).contains(n))&&r[2]>0.0&&r[3]>0.0&&r[0]+r[2]<=1.001&&r[1]+r[3]<=1.001)
+}
+#[cfg(test)]
+mod rpg_tests {
+    use super::*;
+    #[test] fn presets_are_editable_documents_and_not_dashboards(){
+        for kind in [1,3,6] {
+            let d=Document::preset(kind);assert!(d.validate().is_ok());
+            let home:Vec<_>=d.widgets.iter().filter(|w|w.page==Some(Action::Home)).collect();
+            assert_eq!(home.len(),6);
+            assert!(home.iter().any(|w|w.action==Action::Character));
+            assert!(!home.iter().any(|w|w.action==Action::LibraryList||w.action==Action::Account));
+            for size in [vec2(1000.0,572.0),vec2(720.0,392.0),vec2(720.0,304.0)] {
+                let bounds=Rect::from_min_size(Pos2::ZERO,size);
+                let rects:Vec<_>=home.iter().map(|w|placed_rect(w.position,w.size,w.relative,bounds)).collect();
+                for (i,a) in rects.iter().enumerate() {
+                    assert!(bounds.contains_rect(*a));
+                    for b in &rects[i+1..]{assert!(!a.intersects(*b),"preset {kind} overlaps at {size:?}");}
+                }
+            }
+            assert_eq!(serde_json::from_str::<Document>(&serde_json::to_string(&d).unwrap()).unwrap(),d);
+        }
+    }
+    #[test] fn schema_two_migration_keeps_layout_in_memory_only(){
+        let mut old=Document::legacy();old.version=2;
+        let original=old.clone();
+        old.version=VERSION;
+        assert_eq!(old.widgets,original.widgets);assert_eq!(old.panels,original.panels);
+    }
 }

@@ -3,7 +3,7 @@ use eframe::egui::{self,pos2,vec2,Color32,Id,Pos2,Rect,Sense,Stroke,Vec2};
 use crate::{composition::{self,Action,Anchor,Document,Edge,History,Layout,NodeId,Position},theme::ThemePreset};
 
 #[derive(Clone,Copy,PartialEq)]
-enum DragKind { Move,Size }
+enum DragKind { Move,Size(i8,i8) }
 struct Drag {id:NodeId,kind:DragKind,start:Pos2,rect:Rect,before:Document}
 pub struct Editor {
     pub document:Document,
@@ -15,6 +15,7 @@ pub struct Editor {
     background_open:bool,
     drag:Option<Drag>,
     adding:bool,
+    draw_start:Option<Pos2>,
     pub error:Option<String>,
     generation:u64,
     blocked:bool,
@@ -25,7 +26,7 @@ pub struct Editor {
 }
 impl Default for Editor {
     fn default()->Self {Self{document:Document::default(),page:Action::Home,baseline:None,history:History::default(),selected:None,
-        inspector:false,background_open:false,drag:None,adding:false,error:None,generation:0,blocked:false,
+        inspector:false,background_open:false,drag:None,adding:false,draw_start:None,error:None,generation:0,blocked:false,
         rects:Vec::new(),panel_rects:Vec::new(),gesture_before:None,controls:Vec::new()}}
 }
 impl Editor {
@@ -42,12 +43,12 @@ impl Editor {
     pub fn begin(&mut self){if !self.active(){self.baseline=Some(self.document.clone());self.history=History::default();self.selected=None;}}
     pub fn cancel(&mut self){
         if let Some(d)=self.baseline.take(){self.document=d;}
-        self.drag=None;self.gesture_before=None;self.history=History::default();self.inspector=false;self.background_open=false;self.adding=false;
+        self.drag=None;self.gesture_before=None;self.history=History::default();self.inspector=false;self.background_open=false;self.adding=false;self.draw_start=None;
     }
     pub fn finish(&mut self)->bool{
         if self.blocked{self.error=Some("Сохранение заблокировано: исходный файл требует восстановления. Изменения можно отменить.".into());return false}
         match composition::save(&crate::launch::install::game_dir(),self.generation,&self.document){
-            Ok(g)=>{self.generation=g;self.baseline=None;self.drag=None;self.gesture_before=None;self.history=History::default();self.inspector=false;self.background_open=false;self.adding=false;true}
+            Ok(g)=>{self.generation=g;self.baseline=None;self.drag=None;self.gesture_before=None;self.history=History::default();self.inspector=false;self.background_open=false;self.adding=false;self.draw_start=None;true}
             Err(e)=>{self.error=Some(format!("Не сохранено: {e}"));false}
         }
     }
@@ -70,7 +71,7 @@ impl Editor {
             if ctx.input_mut(|i|i.consume_key(egui::Modifiers::CTRL,egui::Key::Z)){self.undo();}
             if ctx.input_mut(|i|i.consume_key(egui::Modifiers::CTRL,egui::Key::Y)){self.redo();}
             if ctx.input(|i|i.key_pressed(egui::Key::Escape)){
-                if let Some(d)=self.drag.take(){self.document=d.before;}else{self.adding=false;self.inspector=false;self.background_open=false;}
+                if let Some(d)=self.drag.take(){self.document=d.before;}else{self.adding=false;self.draw_start=None;self.inspector=false;self.background_open=false;}
             }
         }
         egui::TopBottomPanel::top("composition_toolbar").exact_height(88.0)
@@ -114,6 +115,12 @@ impl Editor {
                         if ui.selectable_label(self.page==page,page.label()).clicked(){self.page=page;self.selected=None;self.inspector=false;}
                     }
                     ui.separator();
+                    ui.menu_button("Пресеты",|ui|{
+                        for (kind,label) in [(1,"01 · Боковая панель"),(3,"03 · Нижний док"),(6,"06 · Центральный персонаж")] {
+                            if ui.button(label).clicked(){self.change(|d|*d=Document::preset(kind));self.selected=None;self.inspector=false;ui.close_menu();}
+                        }
+                        ui.label("Заменяет раскладку; можно отменить. Данные игры не меняет.");
+                    });
                     ui.menu_button("Объекты",|ui|{
                         let panels=self.document.panels.clone();let widgets=self.document.widgets.clone();
                         for p in panels {if ui.button(format!("Панель {}",p.id)).clicked(){self.selected=Some(p.id);self.inspector=true;ui.close_menu();}}
@@ -125,14 +132,24 @@ impl Editor {
             });
     }
     pub fn layout(&self,bounds:Rect)->Layout {Layout::compute(&self.document,bounds)}
-pub fn shell(&mut self,ctx:&egui::Context,layout:&Layout,theme:&ThemePreset,active:Action,
+pub fn shell(&mut self,ctx:&egui::Context,layout:&Layout,theme:&ThemePreset,active:Action,background:&crate::background::Background,
         mut content:impl FnMut(&mut egui::Ui,&composition::Widget))->Option<Action> {
+        if self.active()&&self.drag.is_some(){
+            if let Some(p)=ctx.pointer_interact_pos(){self.apply_drag(p,layout,false,false);}
+        }
+        let current_layout=Layout::compute(&self.document,layout.bounds);
+        let layout=&current_layout;
         self.rects.clear();self.panel_rects=layout.panels.clone();
         let mut action=None;
         let visible=|w:&composition::Widget|w.page.is_none_or(|p|p==active);
         let flow:Vec<_>=self.document.widgets.iter().filter(|w|visible(w)&&w.panel.is_none()&&w.flow).cloned().collect();
         egui::CentralPanel::default().frame(egui::Frame::none()).show(ctx,|ui|{
-            let area=layout.content.shrink(20.0);
+            let mut area=layout.content.shrink(20.0);
+            for p in &self.document.panels {
+                if p.relative.is_some_and(|r|r[1]>0.8) {
+                    if let Some(r)=layout.panel(p.id){area.max.y=area.max.y.min(r.top()-12.0);}
+                }
+            }
             let mut page=ui.new_child(egui::UiBuilder::new().id_salt(("workspace_page",active)).max_rect(area));
             page.set_clip_rect(area);
             egui::ScrollArea::vertical().id_salt(("workspace_scroll",active)).auto_shrink([false,false]).show(&mut page,|ui|{
@@ -155,8 +172,7 @@ pub fn shell(&mut self,ctx:&egui::Context,layout:&Layout,theme:&ThemePreset,acti
             egui::Area::new(Id::new(("compose_panel",p.id))).fixed_pos(r.min).order(egui::Order::Middle).fade_in(false).show(ctx,|ui|{
                 ui.set_min_size(r.size());ui.set_max_size(r.size());ui.set_clip_rect(r);
                 let fill=p.style.fill.map(rgba).unwrap_or(theme.modules.sidebar.fill_or(theme.surface(2)));
-                ui.painter().rect_filled(r,p.style.rounding.unwrap_or(theme.modules.sidebar.rounding_or(0.0)),fill);
-                ui.painter().line_segment([r.right_top(),r.right_bottom()],Stroke::new(1.0_f32,theme.surface(3)));
+                background.surface(ui.painter(),r,p.style.rounding.unwrap_or(theme.modules.sidebar.rounding_or(0.0)),fill,p.style.blur&&self.document.background.is_none());
                 let inner=r.shrink(10.0);
                 let mut child=ui.new_child(egui::UiBuilder::new().id_salt(("panel_items",p.id)).max_rect(inner));
                 child.set_clip_rect(inner);
@@ -174,14 +190,14 @@ pub fn shell(&mut self,ctx:&egui::Context,layout:&Layout,theme:&ThemePreset,acti
                         }
                     }else{
                         ui.horizontal(|ui|{for w in &widgets{
-                            if let Some(a)=self.widget(ui,w,vec2(w.size[0],w.size[1].min(inner.height().max(24.0))),theme,active,&mut content){action=Some(a)}
+                            if let Some(a)=self.widget(ui,w,vec2(if p.relative.is_some(){((inner.width()-16.0)/widgets.len().max(1) as f32).max(32.0)}else{w.size[0]},w.size[1].min(inner.height().max(24.0))),theme,active,&mut content){action=Some(a)}
                         }});
                     }
                 });
             });
         }
         for w in self.document.widgets.clone().into_iter().filter(|w|visible(w)&&w.panel.is_none()&&!w.flow){
-            let r=w.position.rect(layout.bounds,vec2(w.size[0],w.size[1]));
+            let r=composition::placed_rect(w.position,w.size,w.relative,layout.bounds);
             egui::Area::new(Id::new(("compose_free",w.id))).fixed_pos(r.min).fade_in(false).order(egui::Order::Middle).show(ctx,|ui|{
                 ui.set_clip_rect(r);if let Some(a)=self.widget(ui,&w,r.size(),theme,active,&mut content){action=Some(a)}
             });
@@ -195,6 +211,7 @@ pub fn shell(&mut self,ctx:&egui::Context,layout:&Layout,theme:&ThemePreset,acti
         if !w.action.is_navigation(){
             let mut child=ui.new_child(egui::UiBuilder::new().id_salt(("component",w.id)).max_rect(r));
             child.set_clip_rect(r.intersect(ui.clip_rect()));
+            child.style_mut().visuals.disabled_alpha=1.0;
             child.add_enabled_ui(!self.active(),|ui|content(ui,w));
             return None
         }
@@ -221,13 +238,14 @@ pub fn shell(&mut self,ctx:&egui::Context,layout:&Layout,theme:&ThemePreset,acti
             overlay_rect=bounds;
             // The overlay consumes clicks; app additionally disables every functional subtree.
             let bg=ui.interact(bounds,Id::new("compose_background"),Sense::click());
-            if bg.clicked(){self.selected=None;self.inspector=false;}
+            if bg.clicked()&&!self.adding{self.selected=None;self.inspector=false;}
             let accent=theme.accent_color();
             for (id,r) in panel_rects.iter().chain(widget_rects.iter()){
+                if self.adding{continue}
                 if r.width()<24.0||r.height()<24.0{continue}
                 let response=ui.interact(*r,Id::new(("edit_target",id)),Sense::click_and_drag());
                 if response.clicked(){self.selected=Some(*id);self.inspector=false;}
-                if response.drag_started(){
+                if response.drag_started()&&self.drag.is_none(){
                     if let Some(start)=ctx.input(|i|i.pointer.press_origin()){
                         self.settle_local_edit();
                         self.selected=Some(*id);self.inspector=false;
@@ -246,100 +264,65 @@ pub fn shell(&mut self,ctx:&egui::Context,layout:&Layout,theme:&ThemePreset,acti
                     if ui.interact(gear,Id::new("local_gear"),Sense::click()).on_hover_text("Настройки выбранного элемента").clicked(){self.inspector=!self.inspector;self.background_open=false;}
                     self.controls.push(("gear",gear));
                     let edge=self.document.panels.iter().find(|p|p.id==id).map(|p|p.edge).unwrap_or(Edge::Float);
-                    let center=match edge {
-                        Edge::Left=>r.right_center()-vec2(5.0,0.0),
-                        Edge::Right=>r.left_center()+vec2(5.0,0.0),
-                        Edge::Top=>r.center_bottom()-vec2(0.0,5.0),
-                        Edge::Bottom=>r.center_top()+vec2(0.0,5.0),
-                        Edge::Float=>r.right_bottom()-vec2(5.0,5.0),
+                    let handles:Vec<(i8,i8,Pos2)>=match edge {
+                        Edge::Left=>vec![(1,0,r.right_center())],Edge::Right=>vec![(-1,0,r.left_center())],
+                        Edge::Top=>vec![(0,1,r.center_bottom())],Edge::Bottom=>vec![(0,-1,r.center_top())],
+                        Edge::Float=>vec![(1,1,r.right_bottom()),(-1,-1,r.left_top()),(1,-1,r.right_top()),(-1,1,r.left_bottom()),
+                            (-1,0,r.left_center()),(1,0,r.right_center()),(0,-1,r.center_top()),(0,1,r.center_bottom())],
                     };
-                    let handle=Rect::from_center_size(center,vec2(18.0,18.0));
-                    ui.painter().rect_filled(handle.shrink(4.0),2.0,accent);
-                    self.controls.push(("resize",handle));
-                    let cursor=match edge{Edge::Left|Edge::Right=>egui::CursorIcon::ResizeHorizontal,Edge::Top|Edge::Bottom=>egui::CursorIcon::ResizeVertical,_=>egui::CursorIcon::ResizeNwSe};
-                    let h=ui.interact(handle,Id::new("resize_handle"),Sense::drag()).on_hover_cursor(cursor);
-                    if h.drag_started(){if let Some(start)=ctx.input(|i|i.pointer.press_origin()){self.settle_local_edit();self.drag=Some(Drag{id,kind:DragKind::Size,start,rect:*r,before:self.document.clone()});}}
+                    for (index,(x,y,center)) in handles.into_iter().enumerate(){
+                        let center=pos2(center.x.clamp(bounds.left()+6.0,bounds.right()-6.0),center.y.clamp(bounds.top()+6.0,bounds.bottom()-6.0));
+                        let handle=Rect::from_center_size(center,vec2(16.0,16.0));
+                        ui.painter().rect_filled(handle.shrink(4.0),2.0,accent);
+                        if index==0{self.controls.push(("resize",handle));}
+                        let cursor=if x==0{egui::CursorIcon::ResizeVertical}else if y==0{egui::CursorIcon::ResizeHorizontal}else if x==y{egui::CursorIcon::ResizeNwSe}else{egui::CursorIcon::ResizeNeSw};
+                        let h=ui.interact(handle,Id::new(("resize_handle",id,index)),Sense::drag()).on_hover_cursor(cursor);
+                        if h.drag_started(){if let Some(start)=ctx.input(|i|i.pointer.press_origin()){
+                            self.settle_local_edit();self.drag=Some(Drag{id,kind:DragKind::Size(x,y),start,rect:*r,before:self.document.clone()});
+                        }}
+                    }
                 }
             }
             if self.adding {
-                if let Some(p)=ctx.pointer_hover_pos().filter(|p|bounds.contains(*p)){
-                    let edge=near_edge(p,bounds);
-                    let preview=panel_preview(edge,p,bounds);
-                    ui.painter().rect_filled(preview,8.0,accent.gamma_multiply(0.16));
-                    ui.painter().rect_stroke(preview,8.0,Stroke::new(2.0_f32,accent));
-                    if ctx.input(|i|i.pointer.primary_clicked()){
-                        let pos=Position::from_rect(preview,bounds,true);
-                        self.change(|d|{d.add_panel(edge,pos);});self.selected=self.document.panels.last().map(|p|p.id);self.adding=false;
+                if let Some(p)=ctx.pointer_interact_pos().or_else(||ctx.pointer_hover_pos()).filter(|p|bounds.contains(*p)){
+                    if ctx.input(|i|i.pointer.primary_pressed()){self.draw_start=Some(p);}
+                    let preview=self.draw_start.map(|s|Rect::from_two_pos(s,p)).unwrap_or_else(||panel_preview(near_edge(p,bounds),p,bounds));
+                    ui.painter().rect_filled(preview,12.0,accent.gamma_multiply(0.12));
+                    ui.painter().rect_stroke(preview,12.0,Stroke::new(1.5_f32,accent));
+                    if ctx.input(|i|i.pointer.primary_released()){
+                        if let Some(start)=self.draw_start.take(){
+                            let drawn=Rect::from_two_pos(start,p);
+                            let edge=if drawn.size().length()>20.0{Edge::Float}else{near_edge(p,bounds)};
+                            let r=if drawn.width()>=44.0&&drawn.height()>=44.0{drawn}else{panel_preview(edge,p,bounds)};
+                            let position=Position::from_rect(r,bounds,true);
+                            self.change(|d|{
+                                d.add_panel(edge,position);
+                                let panel=d.panels.last_mut().unwrap();
+                                if edge==Edge::Float{panel.size=[r.width().clamp(44.0,1000.0),r.height().clamp(44.0,1000.0)];}
+                                panel.style.fill=Some([17,30,46,170]);panel.style.rounding=Some(14.0);panel.style.blur=true;
+                            });
+                            self.selected=self.document.panels.last().map(|p|p.id);self.adding=false;
+                        }
                     }
                 }
             }
             if let Some(d)=&self.drag {
-                if let Some(p)=ctx.pointer_interact_pos(){
-                    let mut ghost=d.rect.translate(p-d.start);
-                    if d.kind==DragKind::Size {
-                        ghost=d.rect;let delta=p-d.start;
-                        match self.document.panels.iter().find(|w|w.id==d.id).map(|p|p.edge).unwrap_or(Edge::Float){
-                            Edge::Left=>ghost.max.x=(ghost.max.x+delta.x).max(ghost.min.x+44.0),
-                            Edge::Right=>ghost.min.x=(ghost.min.x+delta.x).min(ghost.max.x-44.0),
-                            Edge::Top=>ghost.max.y=(ghost.max.y+delta.y).max(ghost.min.y+44.0),
-                            Edge::Bottom=>ghost.min.y=(ghost.min.y+delta.y).min(ghost.max.y-44.0),
-                            Edge::Float=>ghost.max=(ghost.max+delta).max(ghost.min+vec2(44.0,44.0)),
+                if d.kind==DragKind::Move {
+                    if let Some(p)=ctx.pointer_interact_pos(){
+                        if let Some((_,r))=panel_rects.iter().rev().find(|(id,r)|*id!=d.id&&r.contains(p)){
+                            ui.painter().rect_stroke(r.shrink(3.0),8.0,Stroke::new(2.0_f32,accent));
                         }
                     }
-                    if d.kind==DragKind::Move {
-                        if let Some((pid,r))=panel_rects.iter().rev().find(|(id,r)|*id!=d.id&&r.contains(p)){
-                            if self.document.widgets.iter().any(|w|w.id==d.id){
-                                ui.painter().rect_stroke(r.shrink(3.0),6.0,Stroke::new(2.0_f32,accent));
-                                let vertical=self.document.panels.iter().find(|x|x.id==*pid).is_some_and(|x|x.vertical);
-                                if let Some((_,target))=widget_rects.iter().filter(|(id,_)|*id!=d.id).find(|(id,r)|self.document.widgets.iter().any(|w|w.id==*id&&w.panel==Some(*pid))&&if vertical{p.y<r.center().y}else{p.x<r.center().x}){
-                                    let (a,b)=if vertical{(target.left_top(),target.right_top())}else{(target.left_top(),target.left_bottom())};
-                                    ui.painter().line_segment([a,b],Stroke::new(3.0_f32,accent));
-                                }
-                            }
-                        }
-                        if self.document.panels.iter().any(|x|x.id==d.id){ghost=panel_preview(near_edge(p,bounds),p,bounds);}
-                    }
-                    ui.painter().rect_filled(ghost,6.0,accent.gamma_multiply(0.16));
-                    ui.painter().rect_stroke(ghost,6.0,Stroke::new(2.0_f32,accent));
                 }
             }
         });
-        if ctx.input(|i|i.pointer.any_released()){
-            if let Some(d)=self.drag.take(){
-                if let Some(p)=ctx.pointer_interact_pos().filter(|p|overlay_rect.contains(*p)){
-                    let snap=!ctx.input(|i|i.modifiers.alt);
-                    if d.kind==DragKind::Size {
-                        let s=(d.rect.size()+(p-d.start)).clamp(vec2(44.0,44.0),vec2(1000.0,1000.0));
-                        if let Some(w)=self.document.widgets.iter_mut().find(|w|w.id==d.id){
-                            if w.flow {
-                                let width=(layout.content.width()-40.0).max(1.0);
-                                w.span=((s.x+12.0)/(width+12.0)*12.0).round().clamp(1.0,12.0) as u8;
-                                w.size[1]=s.y;
-                            }else{w.size=[s.x,s.y];}
-                        }
-                        if let Some(panel)=self.document.panels.iter_mut().find(|w|w.id==d.id){
-                            let delta=p-d.start;
-                            match panel.edge {
-                                Edge::Left=>panel.size[0]=(d.rect.width()+delta.x).clamp(44.0,1000.0),
-                                Edge::Right=>panel.size[0]=(d.rect.width()-delta.x).clamp(44.0,1000.0),
-                                Edge::Top=>panel.size[1]=(d.rect.height()+delta.y).clamp(44.0,1000.0),
-                                Edge::Bottom=>panel.size[1]=(d.rect.height()-delta.y).clamp(44.0,1000.0),
-                                Edge::Float=>panel.size=[s.x,s.y],
-                            }
-                        }
-                    }else if let Some(panel)=self.document.panels.iter_mut().find(|w|w.id==d.id){
-                        panel.edge=near_edge(p,bounds);panel.vertical=matches!(panel.edge,Edge::Left|Edge::Right);
-                        panel.position=Position::from_rect(d.rect.translate(p-d.start),bounds,snap);
-                    }else{
-                        let parent=panel_rects.iter().rev().find(|(_,r)|r.contains(p)).map(|(id,_)|*id);
-                        let vertical=parent.and_then(|id|self.document.panels.iter().find(|p|p.id==id)).is_some_and(|p|p.vertical);
-                        let before=widget_rects.iter().filter(|(id,_)|*id!=d.id).find(|(id,r)|self.document.widgets.iter().any(|w|w.id==*id&&w.panel==parent)&&if vertical{p.y<r.center().y}else{p.x<r.center().x}).map(|(id,_)|*id);
-                        let pos=Position::from_rect(d.rect.translate(p-d.start),bounds,snap);
-                        self.document.move_widget(d.id,parent,before,pos);
-                    }
-                    if let Err(e)=self.document.validate(){self.error=Some(e);self.document=d.before;}else{self.history.record(d.before,&self.document);}
-                }
-            }
+        if ctx.input(|i|i.pointer.any_released())&&self.drag.is_some(){
+            if let Some(p)=ctx.pointer_interact_pos().filter(|p|overlay_rect.contains(*p)){
+                self.apply_drag(p,layout,true,!ctx.input(|i|i.modifiers.alt));
+                let d=self.drag.take().unwrap();
+                if let Err(e)=self.document.validate(){self.error=Some(e);self.document=d.before;}
+                else{self.history.record(d.before,&self.document);}
+            }else if let Some(d)=self.drag.take(){self.document=d.before;}
         }
         let before_frame=self.document.clone();
         self.inspector_ui(ctx,layout,theme);
@@ -350,6 +333,50 @@ pub fn shell(&mut self,ctx:&egui::Context,layout:&Layout,theme:&ThemePreset,acti
             self.history.record(before,&self.document);
         }
         self.show_error(ctx);
+    }
+fn apply_drag(&mut self,p:Pos2,layout:&Layout,finalize:bool,snap:bool){
+        let Some(d)=self.drag.as_ref()else{return};
+        let id=d.id;let kind=d.kind;let start=d.start;let original=d.rect;
+        let before=d.before.clone();let delta=p-start;
+        let mut r=original;
+        if kind==DragKind::Move {r=r.translate(delta);}
+        else if let DragKind::Size(x,y)=kind {
+            if x<0{r.min.x=(r.min.x+delta.x).min(r.max.x-44.0);}
+            if x>0{r.max.x=(r.max.x+delta.x).max(r.min.x+44.0);}
+            if y<0{r.min.y=(r.min.y+delta.y).min(r.max.y-44.0);}
+            if y>0{r.max.y=(r.max.y+delta.y).max(r.min.y+44.0);}
+        }
+        self.document=before.clone();
+        if let Some(panel)=self.document.panels.iter_mut().find(|n|n.id==id){
+            panel.relative=None;
+            if kind==DragKind::Move {
+                panel.edge=if finalize{near_edge(p,layout.bounds)}else{Edge::Float};
+                if finalize&&panel.edge!=Edge::Float{panel.vertical=matches!(panel.edge,Edge::Left|Edge::Right);}
+            }
+            panel.size=[r.width().clamp(44.0,1000.0),r.height().clamp(44.0,1000.0)];
+            // Preserve dormant axis for edge panels.
+            if let Some(old)=before.panels.iter().find(|n|n.id==id){
+                if matches!(panel.edge,Edge::Left|Edge::Right){panel.size[1]=old.size[1];}
+                if matches!(panel.edge,Edge::Top|Edge::Bottom){panel.size[0]=old.size[0];}
+            }
+            panel.position=Position::from_rect(r,layout.bounds,snap);
+        }else if kind==DragKind::Move{
+            let parent=if finalize{layout.panels.iter().rev().find(|(_,b)|b.contains(p)).map(|(i,_)|*i)}else{None};
+            let vertical=parent.and_then(|i|self.document.panels.iter().find(|n|n.id==i)).is_some_and(|n|n.vertical);
+            let target=if parent.is_some(){self.rects.iter().filter(|(i,_)|*i!=id).find(|(i,b)|self.document.widgets.iter().any(|w|w.id==*i&&w.panel==parent)&&if vertical{p.y<b.center().y}else{p.x<b.center().x}).map(|(i,_)|*i)}else{None};
+            self.document.move_widget(id,parent,target,Position::from_rect(r,layout.bounds,snap));
+            if let Some(w)=self.document.widgets.iter_mut().find(|n|n.id==id){w.size=[r.width(),r.height()];}
+        }else if let Some(w)=self.document.widgets.iter_mut().find(|n|n.id==id) {
+            w.relative=None;
+            if w.flow{
+                let width=(layout.content.width()-40.0).max(1.0);
+                w.span=((r.width()+12.0)/(width+12.0)*12.0).round().clamp(1.0,12.0) as u8;
+                w.size[1]=r.height().clamp(44.0,1000.0);
+            }else{
+                w.size=[r.width().clamp(44.0,1000.0),r.height().clamp(44.0,1000.0)];
+                w.position=Position::from_rect(r,layout.bounds,snap);
+            }
+        }
     }
     fn inspector_ui(&mut self,ctx:&egui::Context,layout:&Layout,theme:&ThemePreset){
         if self.background_open {
@@ -402,6 +429,10 @@ pub fn shell(&mut self,ctx:&egui::Context,layout:&Layout,theme:&ThemePreset,acti
                 if slider.changed(){style.rounding=Some(radius);}
                 let mut fill=style.fill.unwrap_or(if is_launch{theme.modules.play_button.fill_or(theme.accent_color()).to_array()}else{theme.surface(2).to_array()});
                 ui.horizontal(|ui|{ui.label("Заливка");if ui.color_edit_button_srgba_unmultiplied(&mut fill).changed(){style.fill=Some(fill);}});
+                let mut opacity=fill[3] as f32/255.0;
+                if ui.add(egui::Slider::new(&mut opacity,0.0..=1.0).text("Непрозрачность")).changed(){fill[3]=(opacity*255.0) as u8;style.fill=Some(fill);}
+                ui.checkbox(&mut style.blur,"Размытый фон под элементом");
+                ui.label(egui::RichText::new("Кэш фона, не live-blur соседних элементов.").size(10.0).color(theme.text_tertiary()));
                 if ui.button("Вернуть стиль темы").clicked(){*style=Default::default();}
             }
             ui.separator();

@@ -74,8 +74,9 @@ impl CaligoApp{
         let layout=self.editor.layout(ctx.available_rect());
         let look=self.theme.clone();
         let mut intents=Vec::new();
-        let action=self.editor.shell(ctx,&layout,&look,active,|ui,w|{
-            if let Some(intent)=crate::workspace::show(ui,w,&mut self.theme,&self.auth,&mut self.play,&self.launch,&self.skin,&mut self.instances,&mut self.settings){
+        let wallpaper=self.editor.document.background.is_none();
+        let action=self.editor.shell(ctx,&layout,&look,active,&self.background,|ui,w|{
+            if let Some(intent)=crate::workspace::show(ui,w,&mut self.theme,&self.auth,&mut self.play,&self.launch,&self.skin,&mut self.instances,&mut self.settings,&self.background,wallpaper){
                 intents.push(intent);
             }
         });
@@ -112,18 +113,13 @@ impl CaligoApp{
         let mut anchor=None;
         egui::TopBottomPanel::top("titlebar").exact_height(h).show_separator_line(false).frame(egui::Frame::none()).show(ctx,|ui|{
             let r=ui.max_rect();
-            ui.painter().rect_filled(r,tb.rounding_or(0.0),tb.fill_or(self.theme.surface(1)));
+            ui.painter().rect_filled(r,tb.rounding_or(0.0),tb.fill_or(egui::Color32::from_black_alpha(20)));
             if let Some(s)=tb.border_override(){ui.painter().rect_stroke(r,tb.rounding_or(0.0),s);}
             let drag=ui.interact(r,ui.id().with("drag"),egui::Sense::click_and_drag());
             if drag.drag_started(){ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);}
             if drag.double_clicked(){ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!ctx.input(|i|i.viewport().maximized.unwrap_or(false))));}
             ui.horizontal_centered(|ui|{
                 ui.add_space(22.0);
-                let (mark,_)=ui.allocate_exact_size(vec2(20.0,20.0),egui::Sense::hover());
-                // Quiet, temporary crescent mark; the final moth logo belongs to Way Mee.
-                ui.painter().circle_stroke(mark.center(),7.5,Stroke::new(2.0_f32,self.theme.accent_color()));
-                ui.painter().circle_filled(mark.center()+vec2(4.0,-3.0),6.5,self.theme.surface(1));
-                ui.add_space(4.0);
                 if ui.add(egui::Label::new(egui::RichText::new("Caligo").size(17.0).strong().color(self.theme.text_primary())).sense(egui::Sense::click())).clicked()&&!self.editor.active(){self.tab=Tab::Home;}
                 ui.add_space((sb_w-133.0).max(0.0));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{
@@ -197,7 +193,7 @@ fn profile_chip(
         .animate_bool(response.id.with("hover"), response.hovered());
     let rounding = egui::Rounding::same(style.rounding_or(8.0));
     let painter = ui.painter();
-    painter.rect_filled(rect, rounding, style.fill_or(theme.surface(2)));
+    painter.rect_filled(rect, rounding, style.fill_or(egui::Color32::from_rgba_unmultiplied(17,30,46,150)));
     if hover > 0.0 {
         painter.rect_filled(
             rect,

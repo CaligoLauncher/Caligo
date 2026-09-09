@@ -65,7 +65,7 @@ pub fn launch_button(ui:&mut egui::Ui,theme:&ThemePreset,w:&Widget,play:&PlaySta
     let (rect,response)=ui.allocate_exact_size(ui.available_size().max(vec2(32.0,32.0)),egui::Sense::click());
     let radius=w.style.rounding.unwrap_or(theme.modules.play_button.rounding_or(theme.rounding));
     let mut fill=fill;
-    if !enabled||!ui.is_enabled(){fill=fill.gamma_multiply(0.45);}
+    if !enabled{fill=fill.gamma_multiply(0.45);}
     ui.painter().rect_filled(rect,radius,fill);
     if response.hovered()&&enabled&&ui.is_enabled(){ui.painter().rect_filled(rect,radius,egui::Color32::from_white_alpha(14));}
     ui.painter().rect_stroke(rect,radius,theme.modules.play_button.border_or(egui::Stroke::NONE));
