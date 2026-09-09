@@ -13,10 +13,10 @@ pub struct Studio{
     tool:Tool,palette:bool,layers:bool,pub inspector:bool,inspector_before:Option<Scene>,
     pub error:Option<String>,generation:u64,blocked:bool,
     pub excluded:Vec<Rect>,pub controls:Vec<(&'static str,Rect)>,
-    pub snap:bool,pub guide:Option<Rect>,pub exit_question:bool,
+    pub snap:bool,pub guide:Option<Rect>,pub exit_question:bool,property_tab:u8,
 }
 impl Default for Studio{
-    fn default()->Self{Self{scene:Scene::default(),page:Page::Home,selected:None,active:false,baseline:None,past:vec![],future:vec![],gesture:None,tool:Tool::Select,palette:false,layers:false,inspector:false,inspector_before:None,error:None,generation:0,blocked:false,excluded:vec![],controls:vec![],snap:true,guide:None,exit_question:false}}
+    fn default()->Self{Self{scene:Scene::default(),page:Page::Home,selected:None,active:false,baseline:None,past:vec![],future:vec![],gesture:None,tool:Tool::Select,palette:false,layers:false,inspector:false,inspector_before:None,error:None,generation:0,blocked:false,excluded:vec![],controls:vec![],snap:true,guide:None,exit_question:false,property_tab:0}}
 }
 impl Studio{
     pub fn load()->Self{
@@ -71,6 +71,12 @@ impl Studio{
             Some((x,y,Rect::from_center_size(p,vec2(12.0,12.0))))
         })).collect()
     }
+    fn edge_at(r:Rect,p:Pos2)->Option<(i8,i8)>{
+        if !r.expand(6.0).contains(p){return None}
+        let x=if (p.x-r.left()).abs()<=6.0{-1}else if (p.x-r.right()).abs()<=6.0{1}else{0};
+        let y=if (p.y-r.top()).abs()<=6.0{-1}else if (p.y-r.bottom()).abs()<=6.0{1}else{0};
+        if x==0&&y==0{None}else{Some((x,y))}
+    }
     /// Runs BEFORE painting so actual nodes follow the pointer in the same frame.
     pub fn input(&mut self,ctx:&egui::Context,b:Rect){
         if !self.active{return}
@@ -104,6 +110,11 @@ impl Studio{
             if self.gesture.is_some(){self.cancel_gesture()}return
         };
         if self.gesture.is_none() && self.ignored(p,b){return}
+        if self.gesture.is_none(){
+            if let Some((x,y))=self.selected.filter(|&id|!self.scene.frozen(id)).and_then(|id|self.scene.screen_rect(id,b)).and_then(|r|Self::edge_at(r,p)){
+                ctx.set_cursor_icon(match (x,y){(0,_)=>egui::CursorIcon::ResizeVertical,(_,0)=>egui::CursorIcon::ResizeHorizontal,(-1,-1)|(1,1)=>egui::CursorIcon::ResizeNwSe,_=>egui::CursorIcon::ResizeNeSw});
+            }else if self.scene.hit(p,self.page,b).is_some(){ctx.set_cursor_icon(egui::CursorIcon::Grab);}
+        }else{ctx.set_cursor_icon(egui::CursorIcon::Grabbing);}
         let pressed=ctx.input(|i|i.pointer.primary_pressed());
         let released=ctx.input(|i|i.pointer.primary_released());
         if pressed && b.contains(p){
@@ -111,7 +122,7 @@ impl Studio{
             match self.tool{
                 Tool::Add(k)=>{self.gesture=Some(Gesture{operation:Operation::Draw(k),start:p,rect:Rect::from_min_max(p,p),before:self.scene.clone(),id:None});},
                 Tool::Select=>{
-                    let handle=self.selected.filter(|&id|!self.scene.frozen(id)).and_then(|id|self.scene.screen_rect(id,b).and_then(|r|Self::handle_rects(r).into_iter().find(|(_,_,h)|h.contains(p)).map(|(x,y,_)|(id,r,x,y))));
+                    let handle=self.selected.filter(|&id|!self.scene.frozen(id)).and_then(|id|self.scene.screen_rect(id,b).and_then(|r|Self::edge_at(r,p).map(|(x,y)|(id,r,x,y))));
                     if let Some((id,r,x,y))=handle{
                         self.gesture=Some(Gesture{operation:Operation::Resize(x,y),start:p,rect:r,before:self.scene.clone(),id:Some(id)});
                     }else{
@@ -156,8 +167,20 @@ impl Studio{
                     Operation::Draw(_)=>Rect::from_two_pos(g.start,p),
                 };
                 if let Some(id)=g.id{
-                    let parent=self.scene.parent_rect(id,b);
-                    self.scene.place(id,canvas_model::bounded(r,parent),b);
+                    if matches!(g.operation,Operation::Move){
+                        // A drag is free across the entire page, not trapped by its old panel.
+                        // Preserve inherited page when temporarily detaching.
+                        let mut scope=g.before.node(id).and_then(|n|n.page);
+                        let mut at=g.before.node(id).and_then(|n|n.parent);
+                        while let Some(parent)=at{
+                            let n=g.before.node(parent).unwrap();scope=scope.or(n.page);at=n.parent;
+                        }
+                        let node=self.scene.node_mut(id).unwrap();node.parent=None;node.page=scope;
+                        self.scene.place(id,canvas_model::bounded(r,b),b);
+                    }else{
+                        let parent=self.scene.parent_rect(id,b);
+                        self.scene.place(id,canvas_model::bounded(r,parent),b);
+                    }
                 }else{self.guide=Some(r.intersect(b));}
             }
             if released{
@@ -169,6 +192,17 @@ impl Studio{
                         if r.width()<12.0||r.height()<12.0{r=Rect::from_min_size(g.start,if k==Kind::Panel{vec2(250.0,160.0)}else{vec2(160.0,48.0)});}
                         r=canvas_model::bounded(r,b);
                         let id=self.scene.add(k,Some(self.page),canvas_model::unit_rect(r,b),None);self.selected=Some(id);self.tool=Tool::Select;
+                    }
+                    if let Some(id)=g.id.filter(|_|matches!(g.operation,Operation::Move)&&p.distance(g.start)>2.0){
+                        let rect=self.scene.screen_rect(id,b).unwrap();
+                        let target=if ctx.input(|i|i.modifiers.alt){None}else{
+                            self.scene.order().into_iter().rev().find(|&other|{
+                                other!=id&&!self.scene.descendant(other,id)&&!self.scene.frozen(other)&&self.scene.shown(other,self.page)&&
+                                self.scene.node(other).is_some_and(|n|n.kind==Kind::Panel)&&
+                                self.scene.screen_rect(other,b).is_some_and(|r|r.contains_rect(rect))
+                            })
+                        };
+                        if let Err(e)=self.scene.reparent(id,target,b){self.error=Some(e);}
                     }
                     self.record(g.before);
                 }self.guide=None;
@@ -183,8 +217,8 @@ impl Studio{
             if let Some(r)=self.scene.screen_rect(id,b){
                 p.rect_stroke(r,0.0,Stroke::new(1.5,cyan));
                 if !self.scene.frozen(id){for(_,_,h)in Self::handle_rects(r){p.rect_filled(h.shrink(2.0),2.0,Color32::from_rgb(18,31,43));p.rect_stroke(h.shrink(2.0),2.0,Stroke::new(1.0,cyan));}}
-                if let Some(n)=self.scene.node(id){let text=format!("{}  ·  {} × {}",n.name,r.width().round(),r.height().round());
-                    p.text(pos2(r.left(),(r.top()-8.0).max(b.top()+64.0)),egui::Align2::LEFT_BOTTOM,text,egui::FontId::proportional(11.0),cyan);}
+                if self.gesture.is_some(){if let Some(n)=self.scene.node(id){let text=format!("{}  ·  {} × {}",n.name,r.width().round(),r.height().round());
+                    p.text(pos2(r.left(),(r.top()-8.0).max(b.top()+64.0)),egui::Align2::LEFT_BOTTOM,text,egui::FontId::proportional(11.0),cyan);}}
             }
         }
         if let Some(r)=self.guide{
@@ -262,13 +296,18 @@ impl Studio{
     fn selection_bar(&mut self,ctx:&egui::Context,b:Rect){
         let Some(id)=self.selected else{return};let Some(r)=self.scene.screen_rect(id,b)else{return};
         if self.gesture.is_some(){return}
-        let width=218.0;
+        let width=155.0;
         let x=r.left().clamp(b.left()+8.0,(b.right()-width-8.0).max(b.left()+8.0));
         let y=if r.top()>b.top()+110.0{r.top()-43.0}else{(r.bottom()+10.0).min(b.bottom()-42.0)};
         let area=egui::Area::new(egui::Id::new("studio-selection-actions")).order(egui::Order::Tooltip).fixed_pos(pos2(x,y)).show(ctx,|ui|{
             egui::Frame::popup(ui.style()).inner_margin(5.0).show(ui,|ui|{
                 ui.horizontal(|ui|{
-                    let gear=ui.button("Настроить");self.controls.push(("gear",gear.rect));if gear.clicked(){self.inspector=!self.inspector;if !self.inspector{self.settle();}}
+                    let (gear_rect,gear)=ui.allocate_exact_size(vec2(32.0,28.0),egui::Sense::click());
+                    let c=gear_rect.center();let st=Stroke::new(1.4,Color32::from_rgb(200,220,232));
+                    ui.painter().circle_stroke(c,5.5,st);ui.painter().circle_stroke(c,2.0,st);
+                    for i in 0..8{let a=i as f32*std::f32::consts::TAU/8.0;let d=vec2(a.cos(),a.sin());ui.painter().line_segment([c+d*5.0,c+d*8.5],st);}
+                    self.controls.push(("gear",gear_rect));
+                    if gear.on_hover_text("Настроить этот элемент").clicked(){self.inspector=!self.inspector;self.property_tab=0;if !self.inspector{self.settle();}}
                     if ui.button("Копия").clicked(){let old=self.scene.clone();self.selected=self.scene.duplicate(id);self.record(old);}
                     if ui.button("…").clicked(){self.layers=!self.layers;}
                 });
@@ -284,11 +323,15 @@ impl Studio{
         let mut open=true;
         let r=egui::Window::new(format!("{} · настройки",n.kind.label())).id(egui::Id::new(("studio-properties",id)))
             .order(egui::Order::Tooltip).default_pos(pos2(x,y)).default_width(254.0).max_width(270.0)
-            .max_height((b.height()-90.0).max(180.0)).vscroll(true).resizable(false).collapsible(false).open(&mut open)
-            .constrain_to(b.shrink(8.0)).show(ctx,|ui|{
-                ui.label("Только этот элемент");
-                ui.add(egui::TextEdit::singleline(&mut edited.name).char_limit(100));
+            .max_height((b.height()-145.0).max(140.0)).vscroll(true).resizable(false).collapsible(false).open(&mut open)
+            .constrain_to(Rect::from_min_max(b.min+vec2(8.0,65.0),b.max-vec2(8.0,8.0))).show(ctx,|ui|{
+                ui.horizontal(|ui|{
+                    ui.selectable_value(&mut self.property_tab,0,"Внешний вид");
+                    ui.selectable_value(&mut self.property_tab,1,"Расположение");
+                });
                 ui.separator();
+                if self.property_tab==0{
+                ui.add(egui::TextEdit::singleline(&mut edited.name).char_limit(100));
                 ui.horizontal(|ui|{
                     ui.label("Цвет");ui.color_edit_button_srgba_unmultiplied(&mut edited.style.fill);
                     ui.label("Текст");ui.color_edit_button_srgba_unmultiplied(&mut edited.style.ink);
@@ -298,7 +341,7 @@ impl Studio{
                 let round=ui.add(egui::Slider::new(&mut edited.style.radius,0.0..=50.0).text("Скругление"));self.controls.push(("rounding",round.rect));
                 ui.add(egui::Slider::new(&mut edited.style.font,10.0..=40.0).text("Размер текста"));
                 ui.checkbox(&mut edited.style.blur,"Размытые обои под элементом").on_hover_text("Кэш обоев, не живое размытие перекрытых элементов.");
-                ui.separator();
+                }else{
                 egui::ComboBox::from_id_salt("parent").selected_text(parent.and_then(|p|self.scene.node(p)).map(|n|n.name.as_str()).unwrap_or("Без панели")).show_ui(ui,|ui|{
                     ui.selectable_value(&mut parent,None,"Без панели");
                     for p in self.scene.nodes.iter().filter(|p|p.kind==Kind::Panel&&!self.scene.descendant(p.id,id)&&self.scene.shown(p.id,self.page)){ui.selectable_value(&mut parent,Some(p.id),&p.name);}
@@ -308,6 +351,7 @@ impl Studio{
                 ui.checkbox(&mut edited.locked,"Закрепить от перемещения");
                 ui.horizontal(|ui|{foreground=ui.button("Выше").clicked();background=ui.button("Ниже").clicked();remove=ui.button("Удалить").clicked();});
                 ui.small("Размер — за края. Стрелки — 1 px, Shift — 10 px. Ctrl+D — копия.");
+                }
             });
         self.inspector=open;
         if edited!=n{*self.scene.node_mut(id).unwrap()=edited;}

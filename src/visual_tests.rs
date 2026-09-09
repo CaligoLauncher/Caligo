@@ -206,4 +206,57 @@ fn get(a:&CaligoApp,k:Kind)->(u64,egui::Rect){
     frame(&ctx,&mut a,1000.0,620.0,vec![egui::Event::Key{key:egui::Key::Escape,physical_key:None,pressed:true,repeat:false,modifiers:Default::default()}]);
     assert_eq!(a.studio.scene,old);
 }
+#[test]fn drag_play_out_of_container_and_back(){
+    let ctx=egui::Context::default();let mut a=CaligoApp::visual_fixture(&ctx,Page::Home,false);
+    frame(&ctx,&mut a,1000.0,620.0,vec![]);a.studio.begin();a.studio.snap=false;
+    for _ in 0..4{frame(&ctx,&mut a,1000.0,620.0,vec![]);}
+    let old=a.studio.scene.clone();let(id,r)=get(&a,Kind::Play);let parent=a.studio.scene.node(id).unwrap().parent;
+    let end=r.center()-egui::vec2(350.0,60.0);
+    point(&ctx,&mut a,1000.0,620.0,r.center(),true);
+    frame(&ctx,&mut a,1000.0,620.0,vec![egui::Event::PointerMoved(end)]);
+    point(&ctx,&mut a,1000.0,620.0,end,false);
+    assert_eq!(a.studio.scene.node(id).unwrap().parent,None);
+    assert_eq!(a.studio.scene.node(id).unwrap().page,Some(Page::Home));
+    assert!((get(&a,Kind::Play).1.center()-end).length()<0.1);
+    frame(&ctx,&mut a,1000.0,620.0,vec![]);
+    point(&ctx,&mut a,1000.0,620.0,end,true);
+    frame(&ctx,&mut a,1000.0,620.0,vec![egui::Event::PointerMoved(r.center())]);
+    point(&ctx,&mut a,1000.0,620.0,r.center(),false);
+    assert_eq!(a.studio.scene.node(id).unwrap().parent,parent);
+    a.studio.cancel();assert_eq!(a.studio.scene,old);
+}
+#[test]fn release_outside_and_focus_loss_restore(){
+    for lose_focus in [false,true]{
+        let ctx=egui::Context::default();let mut a=CaligoApp::visual_fixture(&ctx,Page::Home,false);
+        frame(&ctx,&mut a,1000.0,620.0,vec![]);a.studio.begin();
+        for _ in 0..3{frame(&ctx,&mut a,1000.0,620.0,vec![]);}
+        let old=a.studio.scene.clone();let p=get(&a,Kind::Play).1.center();
+        point(&ctx,&mut a,1000.0,620.0,p,true);
+        frame(&ctx,&mut a,1000.0,620.0,vec![egui::Event::PointerMoved(p-egui::vec2(100.0,60.0))]);
+        if lose_focus{
+            let _=ctx.run(egui::RawInput{screen_rect:Some(egui::Rect::from_min_size(egui::Pos2::ZERO,egui::vec2(1000.0,620.0))),focused:false,..Default::default()},|ctx|a.render(ctx));
+        }else{point(&ctx,&mut a,1000.0,620.0,egui::pos2(-20.0,-20.0),false);}
+        assert_eq!(a.studio.scene,old);
+    }
+}
+#[test]fn deleting_parent_keeps_real_controls_and_undo(){
+    let ctx=egui::Context::default();let mut a=CaligoApp::visual_fixture(&ctx,Page::Home,false);
+    frame(&ctx,&mut a,1000.0,620.0,vec![]);a.studio.begin();
+    let old=a.studio.scene.clone();let(id,r)=get(&a,Kind::Play);a.studio.selected=a.studio.scene.node(id).unwrap().parent;
+    frame(&ctx,&mut a,1000.0,620.0,vec![egui::Event::Key{key:egui::Key::Delete,physical_key:None,pressed:true,repeat:false,modifiers:Default::default()}]);
+    assert_eq!(a.studio.scene.node(id).unwrap().parent,None);
+    assert!(get(&a,Kind::Play).1.min.distance(r.min)<0.01);
+    a.studio.undo();assert_eq!(a.studio.scene,old);
+}
+#[test]fn locked_tree_cannot_be_grabbed(){
+    let ctx=egui::Context::default();let mut a=CaligoApp::visual_fixture(&ctx,Page::Home,false);
+    frame(&ctx,&mut a,1000.0,620.0,vec![]);
+    let(id,r)=get(&a,Kind::Play);let parent=a.studio.scene.node(id).unwrap().parent.unwrap();
+    a.studio.scene.node_mut(parent).unwrap().locked=true;a.studio.begin();
+    for _ in 0..3{frame(&ctx,&mut a,1000.0,620.0,vec![]);}
+    let old=a.studio.scene.clone();point(&ctx,&mut a,1000.0,620.0,r.center(),true);
+    frame(&ctx,&mut a,1000.0,620.0,vec![egui::Event::PointerMoved(r.center()-egui::vec2(100.0,0.0))]);
+    point(&ctx,&mut a,1000.0,620.0,r.center()-egui::vec2(100.0,0.0),false);
+    assert_eq!(a.studio.scene,old);assert!(a.studio.selected.is_none());
+}
 }

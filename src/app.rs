@@ -52,7 +52,7 @@ impl CaligoApp{
                 let ink=paint::rgba(n.style.ink);
                 let label=match n.kind{
                     Kind::Selection=>self.session.instance.clone().unwrap_or("Minecraft".into()),
-                    Kind::Version=>self.session.version(&self.launch).map(|v|format!("Minecraft {}  ▾",v.id)).unwrap_or("Выбрать версию".into()),
+                    Kind::Version=>self.session.version(&self.launch).map(|v|format!("Minecraft {}",v.id)).unwrap_or("Выбрать версию".into()),
                     Kind::Search=>if self.search.is_empty(){"Найти сборку…".into()}else{self.search.clone()},
                     Kind::Status=>match self.launch.state(){LaunchState::Idle=>"Готов к игре".into(),LaunchState::Preparing(s)=>s,LaunchState::Running=>"Minecraft работает".into(),LaunchState::Exited(c)=>format!("Игра завершена · {c}"),LaunchState::Failed(_)=>"Ошибка запуска — открыть подробности".into()},
                     Kind::Play=>match self.launch.state(){LaunchState::Preparing(_)=>"Подготовка…".into(),LaunchState::Running=>"Игра запущена".into(),_=>n.name.clone()},
@@ -67,8 +67,16 @@ impl CaligoApp{
                     Kind::List=>{
                         let inner=r.shrink(14.0);
                         if editing{
-                            paint::text(&p,Rect::from_min_size(inner.min,vec2(inner.width(),28.0)),"Список твоих сборок",17.0,ink,false);
-                            paint::text(&p,Rect::from_min_size(inner.min+vec2(0.0,38.0),vec2(inner.width(),26.0)),"Записи остаются внутри списка",12.0,ink,false);
+                            let items:Vec<_>=self.library.items.iter().filter(|x|x.name.to_lowercase().contains(&self.search.to_lowercase())||x.version.contains(&self.search)).collect();
+                            if items.is_empty(){
+                                paint::text(&p,Rect::from_min_size(inner.min,vec2(inner.width(),28.0)),if self.library.items.is_empty(){"Здесь будут твои сборки"}else{"Ничего не найдено"},18.0,ink,false);
+                                paint::text(&p,Rect::from_min_size(inner.min+vec2(0.0,36.0),vec2(inner.width(),26.0)),"Сборка пока сохраняет имя и версию Minecraft.",13.0,ink,false);
+                            }
+                            for (i,item) in items.iter().take((inner.height()/64.0).ceil() as usize).enumerate(){
+                                let row=Rect::from_min_size(inner.min+vec2(0.0,i as f32*64.0),vec2(inner.width(),60.0));
+                                paint::text(&p,Rect::from_min_size(row.min+vec2(10.0,2.0),vec2((row.width()-60.0).max(1.0),30.0)),&item.name,16.0,ink,false);
+                                paint::text(&p,Rect::from_min_size(row.min+vec2(10.0,31.0),vec2((row.width()-60.0).max(1.0),22.0)),&format!("{}  ·  Vanilla",item.version),12.0,Color32::from_rgb(168,191,208),false);
+                            }
                         }else{
                             let mut child=ui.new_child(egui::UiBuilder::new().id_salt(("library-list",id)).max_rect(inner));
                             child.set_clip_rect(inner.intersect(bounds));
@@ -145,10 +153,10 @@ impl CaligoApp{
             }
             let profile=Rect::from_min_size(pos2(r.right()-274.0,r.top()+7.0),vec2(122.0,30.0));
             let name=match self.auth.state(){AuthState::SignedIn(a)=>a.username,_=>if self.session.offline_name.is_empty(){"Профиль".into()}else{self.session.offline_name.clone()}};
-            if ui.put(profile,egui::Button::new(name).fill(Color32::from_white_alpha(10))).clicked()&&!self.studio.active{self.popup=Some(Popup::Profile);}
+            if ui.put(profile,egui::Button::new(name).wrap_mode(egui::TextWrapMode::Truncate).fill(Color32::from_white_alpha(10)).stroke(Stroke::NONE).rounding(8.0)).clicked()&&!self.studio.active{self.popup=Some(Popup::Profile);}
             let edit=Rect::from_min_size(pos2(r.right()-390.0,r.top()+7.0),vec2(104.0,30.0));
             self.controls.push(("editor",edit));
-            if ui.put(edit,egui::Button::new(if self.studio.active{"Редактируешь"}else{"Редактор"}).fill(Color32::TRANSPARENT)).clicked()&&!self.studio.active{self.studio.page=self.tab;self.studio.begin();self.popup=None;}
+            if ui.put(edit,egui::Button::new("Редактор").wrap_mode(egui::TextWrapMode::Truncate).fill(Color32::TRANSPARENT)).clicked()&&!self.studio.active{self.studio.page=self.tab;self.studio.begin();self.popup=None;}
         });
     }
     fn dialogs(&mut self,ctx:&egui::Context){

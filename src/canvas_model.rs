@@ -144,7 +144,7 @@ impl Scene {
     }
     pub fn preset(kind:u8)->Self{
         let mut s=Self::empty();
-        let nav=s.add(Kind::Panel,None,if kind==1{[0.018,0.19,0.14,0.52]}else{[0.315,0.865,0.37,0.095]},None);
+        let nav=s.add(Kind::Panel,None,if kind==1{[0.018,0.19,0.14,0.52]}else{[0.265,0.865,0.47,0.095]},None);
         s.node_mut(nav).unwrap().name="Навигация".into();
         s.node_mut(nav).unwrap().style.blur=true;
         for (i,k) in [Kind::Home,Kind::Library,Kind::Settings].iter().enumerate(){
