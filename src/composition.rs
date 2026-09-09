@@ -138,7 +138,12 @@ impl Layout {
             panels.push((p.id,r));
         }
         for p in doc.panels.iter().filter(|p|p.edge==Edge::Float){
-            panels.push((p.id,placed_rect(p.position,p.size,p.relative,bounds)));
+            let mut r=placed_rect(p.position,p.size,p.relative,bounds);
+            if p.relative.is_some()&&!p.vertical{
+                let height=r.height().clamp(52.0,64.0).min(bounds.height());
+                r=Rect::from_min_size(pos2(r.left(),r.top().min(bounds.bottom()-height-4.0)),vec2(r.width(),height));
+            }
+            panels.push((p.id,r));
         }
         Self{panels,content:available,bounds}
     }
@@ -342,7 +347,7 @@ impl Document {
         let panel=&mut d.panels[0];
         panel.edge=Edge::Float;
         panel.vertical=kind==1;
-        panel.relative=Some(if kind==1{[0.025,0.18,0.075,0.64]}else{[0.30,0.88,0.40,0.10]});
+        panel.relative=Some(if kind==1{[0.025,0.18,0.075,0.64]}else{[0.30,0.86,0.40,0.12]});
         panel.style=Style{rounding:Some(18.0),fill:Some([17,30,46,170]),blur:true};
         for w in &mut d.widgets {
             if w.panel==Some(1){w.size=[116.0,46.0];w.bottom=kind==1&&w.action==Settings;}

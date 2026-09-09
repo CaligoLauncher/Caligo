@@ -17,20 +17,43 @@ pub fn show(ui:&mut egui::Ui,w:&Widget,theme:&mut ThemePreset,auth:&AuthManager,
     let fill=w.style.fill.map(crate::theme::color_arr).unwrap_or(if bare{egui::Color32::TRANSPARENT}else{look.surface(2)});
     let rect=ui.max_rect();
     if w.action!=Action::Launch{background.surface(ui.painter(),rect,w.style.rounding.unwrap_or(look.rounding),fill,w.style.blur&&wallpaper);}
-    let padding=if w.action==Action::Version{8.0}else{padding};
+    let padding=if w.action==Action::Version{2.0}else{padding};
     let inner=rect.shrink(padding);
     let mut component=ui.new_child(egui::UiBuilder::new().id_salt(("component_body",w.id)).max_rect(inner));
     component.set_clip_rect(inner.intersect(ui.clip_rect()));
     component.scope(|ui|{
         if w.action==Action::Character {
-            skin::paint_paperdoll(ui.painter(),inner,skin_mgr.texture().as_ref(),None,look.accent_color(),0.0);
+            skin::paint_paperdoll(ui.painter(),egui::Rect::from_center_size(inner.center(),vec2(inner.width()*1.75,inner.height()*0.92)),skin_mgr.texture().as_ref(),None,look.accent_color(),0.0);
             return
         }
         if w.action==Action::Cover {
             crate::rpg_scene::cover(ui.painter(),inner,w.style.rounding.unwrap_or(14.0));
             return
         }
+        if w.action==Action::Selection {
+            let title=play.selected_instance.as_deref().unwrap_or("Minecraft: Java Edition");
+            let font=if inner.width()<270.0{16.0}else{19.0};
+            c::label(ui.painter(),egui::Rect::from_min_size(inner.min,vec2(inner.width(),24.0)),title,font,look.text_primary());
+            if inner.height()>=43.0 {
+                c::label(ui.painter(),egui::Rect::from_min_size(inner.min+vec2(0.0,29.0),vec2(inner.width(),16.0)),
+                    if play.selected_instance.is_some(){"Сохранённая конфигурация · Vanilla"}else{"Быстрый запуск · Vanilla"},11.0,look.text_body());
+            }
+            return
+        }
+        if w.action==Action::Version {
+            let mut style=(**ui.style()).clone();
+            let radius=w.style.rounding.unwrap_or(look.rounding);
+            style.spacing.interact_size.y=inner.height().max(24.0);
+            style.spacing.button_padding=vec2(8.0,4.0);
+            style.visuals.widgets.inactive.weak_bg_fill=egui::Color32::TRANSPARENT;
+            style.visuals.widgets.inactive.rounding=egui::Rounding::same(radius);
+            style.visuals.widgets.hovered.rounding=egui::Rounding::same(radius);
+            ui.set_style(style);
+            play::version_picker(ui,play,launch);
+            return
+        }
         if w.action==Action::Launch {
+            if w.style.blur&&wallpaper{background.surface(ui.painter(),rect,w.style.rounding.unwrap_or(look.rounding),egui::Color32::TRANSPARENT,true);}
             if play::launch_button(ui,&look,w,play,launch){intent=Some(Intent::Launch);}
             return
         }
@@ -51,14 +74,6 @@ pub fn show(ui:&mut egui::Ui,w:&Widget,theme:&mut ThemePreset,auth:&AuthManager,
                     c::label(ui.painter(),egui::Rect::from_min_size(ui.cursor().min,vec2(ui.available_width(),26.0)),title,19.0,look.text_primary());
                     ui.allocate_space(vec2(1.0,26.0));
                     ui.label(egui::RichText::new(if play.selected_instance.is_some(){"Сохранённая конфигурация · Vanilla"}else{"Быстрый запуск · Vanilla"}).size(12.0).color(look.text_tertiary()));
-                }
-                Action::Version=>{
-                    let vs=&look.modules.version_button;
-                    let mut style=(**ui.style()).clone();
-                    style.visuals.widgets.inactive.weak_bg_fill=vs.fill_or(look.surface(3));
-                    style.visuals.widgets.inactive.rounding=egui::Rounding::same(w.style.rounding.unwrap_or(vs.rounding_or(look.rounding)));
-                    ui.set_style(style);
-                    play::version_picker(ui,play,launch);
                 }
                 Action::Status=>play::status(ui,&look,launch),
                 Action::LibraryList=>{

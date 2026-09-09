@@ -393,7 +393,7 @@ fn visual_review_launch_component_and_create_dialog(){
         app.editor.document=crate::composition::Document::default();
         if editing{
             let node=app.editor.document.widgets.iter_mut().find(|w|w.action==Action::Launch).unwrap();
-            node.flow=false;node.size=[200.0,48.0];
+            node.flow=false;node.relative=None;node.size=[200.0,48.0];
             node.position=Position{anchor:Anchor::TopRight,offset:[24.0,28.0]};
             node.style.rounding=Some(22.0);
             let id=node.id;app.editor.begin();app.editor.test_select(id);

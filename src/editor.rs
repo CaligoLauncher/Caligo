@@ -180,7 +180,7 @@ pub fn shell(&mut self,ctx:&egui::Context,layout:&Layout,theme:&ThemePreset,acti
                 let total:f32=widgets.iter().map(|w|if p.vertical{w.size[1]+8.0}else{w.size[0]+8.0}).sum();
                 let view=if p.vertical{inner.height()}else{inner.width()};
                 let scroll=if p.vertical{egui::ScrollArea::vertical()}else{egui::ScrollArea::horizontal()};
-                scroll.id_salt(("panel_scroll",p.id)).auto_shrink([false,false]).show(&mut child,|ui|{
+                scroll.id_salt(("panel_scroll",p.id)).scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden).auto_shrink([false,false]).show(&mut child,|ui|{
                     if p.vertical {
                         let mut used=0.0;
                         for w in &widgets {
@@ -391,9 +391,13 @@ fn apply_drag(&mut self,p:Pos2,layout:&Layout,finalize:bool,snap:bool){
         let is_panel=self.document.panels.iter().any(|p|p.id==id);
         let name=self.document.widgets.iter().find(|w|w.id==id).map(|w|format!("{} · {}",w.action.label(),w.id)).unwrap_or_else(||format!("Панель {id}"));
         let rect=self.rects.iter().chain(self.panel_rects.iter()).find(|(i,_)|*i==id).map(|(_,r)|*r).unwrap_or(layout.content);
-        let pos=pos2((rect.right()+12.0).min(layout.bounds.right()-280.0).max(layout.bounds.left()+8.0),(rect.top()+34.0).min(layout.bounds.bottom()-290.0).max(layout.bounds.top()));
+        let width=264.0;
+        let x=if rect.right()+width+20.0<=layout.bounds.right(){rect.right()+12.0}
+            else if rect.left()-width-12.0>=layout.bounds.left(){rect.left()-width-12.0}
+            else{layout.bounds.left()+8.0};
+        let pos=pos2(x,(rect.top()+12.0).min(layout.bounds.bottom()-250.0).max(layout.bounds.top()+8.0));
         let mut remove=false;let mut parent_select=None;let mut close=false;
-        let window=egui::Window::new(name.clone()).id(Id::new(("local_inspector",id))).order(egui::Order::Foreground).fixed_pos(pos).default_width(252.0).default_height(340.0).min_height(120.0).resizable(false).collapsible(false).title_bar(false).constrain_to(layout.bounds.shrink(8.0)).max_height((layout.bounds.height()-32.0).max(120.0)).vscroll(true).show(ctx,|ui|{
+        let window=egui::Window::new(name.clone()).id(Id::new(("local_inspector",id))).order(egui::Order::Foreground).fixed_pos(pos).default_width(252.0).default_height(260.0).min_height(120.0).resizable(false).collapsible(false).title_bar(false).constrain_to(layout.bounds.shrink(8.0)).max_height((layout.bounds.height()-32.0).max(120.0)).vscroll(true).show(ctx,|ui|{
             ui.label(egui::RichText::new(name).size(15.0).strong());
             ui.label(egui::RichText::new("Только выбранный элемент").size(11.0).color(theme.text_tertiary()));
             if let Some(w)=self.document.widgets.iter_mut().find(|w|w.id==id){
@@ -429,9 +433,8 @@ fn apply_drag(&mut self,p:Pos2,layout:&Layout,finalize:bool,snap:bool){
                 let mut fill=style.fill.unwrap_or(if is_launch{theme.modules.play_button.fill_or(theme.accent_color()).to_array()}else{theme.surface(2).to_array()});
                 ui.horizontal(|ui|{ui.label("Заливка");if ui.color_edit_button_srgba_unmultiplied(&mut fill).changed(){style.fill=Some(fill);}});
                 let mut opacity=fill[3] as f32/255.0;
-                if ui.add(egui::Slider::new(&mut opacity,0.0..=1.0).text("Непрозрачность")).changed(){fill[3]=(opacity*255.0) as u8;style.fill=Some(fill);}
-                ui.checkbox(&mut style.blur,"Размытый фон под элементом");
-                ui.label(egui::RichText::new("Кэш фона, не live-blur соседних элементов.").size(10.0).color(theme.text_tertiary()));
+                if ui.add(egui::Slider::new(&mut opacity,0.0..=1.0).text("Непрозрачность").show_value(false)).changed(){fill[3]=(opacity*255.0) as u8;style.fill=Some(fill);}
+                ui.checkbox(&mut style.blur,"Размытие фона").on_hover_text("Кэш изображения фона, не live-blur соседних элементов.");
                 if ui.button("Вернуть стиль темы").clicked(){*style=Default::default();}
             }
             ui.separator();
