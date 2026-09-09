@@ -231,6 +231,7 @@ fn panel_resize_pointer_and_restart_preserve_navigation(){
 fn visual_review_editor_screens(){
     for (name,w,h,editing,custom) in [
         ("editor_default_1000",1000,620,true,false),
+        ("rpg_editor_720",720,440,true,false),
         ("editor_local_720",720,440,true,true),
         ("editor_local_1000",1000,620,true,true),
         ("composition_top_1000",1000,620,false,true),
@@ -239,6 +240,7 @@ fn visual_review_editor_screens(){
         let ctx=egui::Context::default();ctx.set_pixels_per_point(1.0);
         let mut app=CaligoApp::visual_fixture(&ctx,Tab::Home,false);
         app.editor.document=crate::composition::Document::legacy();
+        if !custom{app.editor.document=crate::composition::Document::default();}
         if custom{
             let p=app.editor.document.add_panel(Edge::Top,Position::default());
             app.editor.document.move_widget(3,Some(p),None,Position::default());
@@ -504,6 +506,12 @@ fn rpg_navigation_replaces_character_and_launch_at_all_sizes() {
             for _ in 0..2{frame(&mut app,vec![]);}
             assert_eq!(app.tab,Tab::Instances);
             assert!(home.iter().all(|id|!app.editor.rects.iter().any(|(i,_)|i==id)));
+            if preset==1{
+                let panel=app.editor.panel_rects.iter().find(|(i,_)|*i==1).unwrap().1;
+                for (id,r) in &app.editor.rects {
+                    if app.editor.document.widgets.iter().any(|w|w.id==*id&&w.flow){assert!(r.left()>panel.right());}
+                }
+            }
         }
     }
 }

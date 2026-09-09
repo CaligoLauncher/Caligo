@@ -42,7 +42,7 @@ pub fn version_picker(ui:&mut egui::Ui,play:&mut PlayState,launch:&LaunchManager
         Some(Ok(versions))=>{
             let releases:Vec<_>=versions.iter().filter(|v|v.kind=="release").collect();
             let selected=play.selected_version.clone().or_else(||releases.first().map(|v|v.id.clone()));
-            let text=selected.as_ref().map(|s|format!("Minecraft {s}")).unwrap_or_else(||"Нет версий".into());
+            let text=selected.as_ref().map(|s|if ui.available_width()<180.0{s.clone()}else{format!("Minecraft {s}")}).unwrap_or_else(||"Нет версий".into());
             let width=ui.available_width().max(40.0);
             egui::ComboBox::from_id_salt("version").width((width-8.0).max(32.0)).selected_text(text).height(230.0).show_ui(ui,|ui|{
                 ui.add(egui::TextEdit::singleline(&mut play.version_search).hint_text("Найти версию…").desired_width((width-24.0).max(80.0)));

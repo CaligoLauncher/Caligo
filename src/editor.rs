@@ -146,6 +146,12 @@ pub fn shell(&mut self,ctx:&egui::Context,layout:&Layout,theme:&ThemePreset,acti
         egui::CentralPanel::default().frame(egui::Frame::none()).show(ctx,|ui|{
             let mut area=layout.content.shrink(20.0);
             for p in &self.document.panels {
+                if p.relative.is_some()&&p.vertical {
+                    if let Some(r)=layout.panel(p.id){
+                        if r.center().x<layout.bounds.center().x{area.min.x=area.min.x.max(r.right()+20.0);}
+                        else{area.max.x=area.max.x.min(r.left()-20.0);}
+                    }
+                }
                 if p.relative.is_some_and(|r|r[1]>0.8) {
                     if let Some(r)=layout.panel(p.id){area.max.y=area.max.y.min(r.top()-12.0);}
                 }
@@ -398,7 +404,12 @@ fn apply_drag(&mut self,p:Pos2,layout:&Layout,finalize:bool,snap:bool){
         let pos=pos2(x,(rect.top()+12.0).min(layout.bounds.bottom()-250.0).max(layout.bounds.top()+8.0));
         let mut remove=false;let mut parent_select=None;let mut close=false;
         let window=egui::Window::new(name.clone()).id(Id::new(("local_inspector",id))).order(egui::Order::Foreground).fixed_pos(pos).default_width(252.0).default_height(260.0).min_height(120.0).resizable(false).collapsible(false).title_bar(false).constrain_to(layout.bounds.shrink(8.0)).max_height((layout.bounds.height()-32.0).max(120.0)).vscroll(true).show(ctx,|ui|{
-            ui.label(egui::RichText::new(name).size(15.0).strong());
+            ui.horizontal(|ui|{
+                ui.label(egui::RichText::new(name).size(15.0).strong());
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{
+                    if ui.small_button("×").on_hover_text("Закрыть настройки").clicked(){close=true;}
+                });
+            });
             ui.label(egui::RichText::new("Только выбранный элемент").size(11.0).color(theme.text_tertiary()));
             if let Some(w)=self.document.widgets.iter_mut().find(|w|w.id==id){
                 if let Some(parent)=w.panel{if ui.small_button("Выбрать родительскую панель").clicked(){parent_select=Some(parent);}}

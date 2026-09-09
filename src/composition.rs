@@ -414,3 +414,26 @@ mod rpg_tests {
         assert_eq!(old.widgets,original.widgets);assert_eq!(old.panels,original.panels);
     }
 }
+
+#[cfg(test)]
+mod previous_schema_file_tests {
+    use super::*;
+    #[test]
+    fn schema_two_file_load_never_replaces_or_rewrites_user_layout(){
+        let dir=std::env::temp_dir().join(format!("caligo-v2-{}-{}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        fs::create_dir_all(&dir).unwrap();
+        let mut d=Document::legacy();d.widgets[1].label="Моя библиотека".into();
+        let mut value=serde_json::to_value(&d).unwrap();value["version"]=2.into();
+        for w in value["widgets"].as_array_mut().unwrap(){w.as_object_mut().unwrap().remove("relative");w["style"].as_object_mut().unwrap().remove("blur");}
+        for p in value["panels"].as_array_mut().unwrap(){p.as_object_mut().unwrap().remove("relative");p["style"].as_object_mut().unwrap().remove("blur");}
+        let bytes=serde_json::to_vec(&serde_json::json!({"generation":7,"document":value})).unwrap();
+        fs::write(dir.join("interface-a.json"),&bytes).unwrap();
+        let (g,loaded)=load(&dir).unwrap().unwrap();
+        assert_eq!(g,7);assert_eq!(loaded,d);
+        assert_eq!(fs::read(dir.join("interface-a.json")).unwrap(),bytes);
+        save(&dir,g,&loaded).unwrap();
+        assert_eq!(fs::read(dir.join("interface-a.json")).unwrap(),bytes);
+        assert_eq!(load(&dir).unwrap().unwrap(),(8,d));
+        fs::remove_dir_all(dir).unwrap();
+    }
+}
