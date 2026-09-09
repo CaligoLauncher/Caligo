@@ -86,7 +86,7 @@ impl Studio{
             if ctx.input(|i|i.key_pressed(egui::Key::Escape)){
                 if self.gesture.is_some(){self.cancel_gesture()}
                 else if self.inspector{self.inspector=false;self.settle()}
-                else if self.palette||self.layers{self.palette=false;self.layers=false;self.tool=Tool::Select}
+                else if self.palette||self.layers||matches!(self.tool,Tool::Add(_)){self.palette=false;self.layers=false;self.tool=Tool::Select}
                 else{self.exit_question=true;}
                 return
             }
@@ -109,7 +109,7 @@ impl Studio{
         let Some(p)=ctx.input(|i|i.pointer.interact_pos())else{
             if self.gesture.is_some(){self.cancel_gesture()}return
         };
-        if self.gesture.is_none() && self.ignored(p,b){return}
+        if self.gesture.is_none() && (self.ignored(p,b)||ctx.layer_id_at(p).is_some_and(|layer|matches!(layer.order,egui::Order::Foreground|egui::Order::Tooltip|egui::Order::Debug))){return}
         if self.gesture.is_none(){
             if let Some((x,y))=self.selected.filter(|&id|!self.scene.frozen(id)).and_then(|id|self.scene.screen_rect(id,b)).and_then(|r|Self::edge_at(r,p)){
                 ctx.set_cursor_icon(match (x,y){(0,_)=>egui::CursorIcon::ResizeVertical,(_,0)=>egui::CursorIcon::ResizeHorizontal,(-1,-1)|(1,1)=>egui::CursorIcon::ResizeNwSe,_=>egui::CursorIcon::ResizeNeSw});
@@ -179,7 +179,7 @@ impl Studio{
                         self.scene.place(id,canvas_model::bounded(r,b),b);
                     }else{
                         let parent=self.scene.parent_rect(id,b);
-                        self.scene.place(id,canvas_model::bounded(r,parent),b);
+                        self.scene.place(id,r.intersect(parent),b);
                     }
                 }else{self.guide=Some(r.intersect(b));}
             }
@@ -232,6 +232,13 @@ impl Studio{
         self.toolbar(ctx,b);
         if self.layers{self.layer_list(ctx,b);}
         if self.palette{self.catalog(ctx,b);}
+        if let Tool::Add(kind)=self.tool{
+            let hint=egui::Area::new(egui::Id::new("draw-hint")).order(egui::Order::Tooltip)
+                .fixed_pos(b.min+vec2(12.0,62.0)).show(ctx,|ui|{
+                    egui::Frame::popup(ui.style()).show(ui,|ui|{ui.label(format!("{}: нажми и протяни на странице. Esc — отмена.",kind.label()));});
+                });
+            self.excluded.push(hint.response.rect);
+        }
         self.selection_bar(ctx,b);
         if self.inspector{self.properties(ctx,b);}
         if self.exit_question{
@@ -255,7 +262,7 @@ impl Studio{
                     ui.menu_button(self.page.label(),|ui|{for page in Page::ALL{if ui.button(page.label()).clicked(){self.set_page(page);ui.close_menu();}}});
                     let a=ui.button("+ Добавить");self.controls.push(("add",a.rect));if a.clicked(){self.palette=!self.palette;self.layers=false;}
                     if ui.button("Слои").clicked(){self.layers=!self.layers;self.palette=false;}
-                    ui.menu_button("Пресет",|ui|{for p in [1,3,6]{if ui.button(format!("{p:02}")).clicked(){self.choose_preset(p);ui.close_menu();}}});
+                    ui.menu_button("Пресет",|ui|{for p in [1,3,6]{let response=ui.button(format!("{p:02}"));if p==1{self.controls.push(("preset_01",response.rect));}if response.clicked(){self.choose_preset(p);ui.close_menu();}}});
                     let u=ui.add_enabled(!self.past.is_empty(),egui::Button::new("Назад"));self.controls.push(("undo",u.rect));if u.clicked(){self.undo();}
                     if ui.add_enabled(!self.future.is_empty(),egui::Button::new("Вперёд")).clicked(){self.redo();}
                     let done=ui.button("Готово");self.controls.push(("save",done.rect));if done.clicked(){self.save();}
@@ -273,7 +280,11 @@ impl Studio{
     fn catalog(&mut self,ctx:&egui::Context,b:Rect){
         let r=egui::Window::new("Добавить на страницу").id(egui::Id::new("studio-catalog")).order(egui::Order::Tooltip).fixed_pos(b.min+vec2(12.0,64.0)).default_width(210.0).max_height((b.height()-95.0).max(180.0)).vscroll(true).resizable(false).collapsible(false).show(ctx,|ui|{
             ui.label("Выбери элемент и нарисуй его размер на странице.");
-            for kind in Kind::ALL{if ui.button(kind.label()).clicked(){self.tool=Tool::Add(kind);self.palette=false;self.inspector=false;}}
+            for kind in Kind::ALL{
+                let button=ui.button(kind.label());
+                if kind==Kind::Panel{self.controls.push(("add_panel",button.rect));}
+                if button.clicked(){self.tool=Tool::Add(kind);self.palette=false;self.inspector=false;}
+            }
             ui.separator();ui.checkbox(&mut self.snap,"Привязка при переносе");ui.small("Alt — временно без привязки");
         });if let Some(r)=r{self.excluded.push(r.response.rect);}
     }
@@ -295,10 +306,17 @@ impl Studio{
     }
     fn selection_bar(&mut self,ctx:&egui::Context,b:Rect){
         let Some(id)=self.selected else{return};let Some(r)=self.scene.screen_rect(id,b)else{return};
-        if self.gesture.is_some(){return}
+        if self.gesture.is_some()||self.inspector{return}
         let width=155.0;
         let x=r.left().clamp(b.left()+8.0,(b.right()-width-8.0).max(b.left()+8.0));
-        let y=if r.top()>b.top()+110.0{r.top()-43.0}else{(r.bottom()+10.0).min(b.bottom()-42.0)};
+        let above=(r.top()-43.0).max(b.top()+60.0);
+        let below=(r.bottom()+10.0).min(b.bottom()-42.0);
+        let blocked=|y:f32|{
+            let bar=Rect::from_min_size(pos2(x,y),vec2(width,34.0));
+            self.scene.order().into_iter().filter(|&other|other!=id&&!self.scene.descendant(id,other)&&self.scene.shown(other,self.page))
+                .filter(|&other|self.scene.screen_rect(other,b).is_some_and(|other|other.intersects(bar))).count()
+        };
+        let y=if blocked(above)<=blocked(below){above}else{below};
         let area=egui::Area::new(egui::Id::new("studio-selection-actions")).order(egui::Order::Tooltip).fixed_pos(pos2(x,y)).show(ctx,|ui|{
             egui::Frame::popup(ui.style()).inner_margin(5.0).show(ui,|ui|{
                 ui.horizontal(|ui|{

@@ -259,4 +259,44 @@ fn get(a:&CaligoApp,k:Kind)->(u64,egui::Rect){
     point(&ctx,&mut a,1000.0,620.0,r.center()-egui::vec2(100.0,0.0),false);
     assert_eq!(a.studio.scene,old);assert!(a.studio.selected.is_none());
 }
+#[test]fn palette_draw_panel_mouse_flow_and_cancel(){
+    for(w,h)in[(1000.0,620.0),(720.0,440.0)]{
+        let ctx=egui::Context::default();let mut a=CaligoApp::visual_fixture(&ctx,Page::Home,false);
+        frame(&ctx,&mut a,w,h,vec![]);a.studio.begin();
+        for _ in 0..4{frame(&ctx,&mut a,w,h,vec![]);}
+        let old=a.studio.scene.clone();
+        let add=a.studio.controls.iter().find(|x|x.0=="add").unwrap().1.center();
+        click(&ctx,&mut a,w,h,add);
+        for _ in 0..4{frame(&ctx,&mut a,w,h,vec![]);}
+        let panel=a.studio.controls.iter().find(|x|x.0=="add_panel").unwrap().1.center();
+        click(&ctx,&mut a,w,h,panel);
+        for _ in 0..4{frame(&ctx,&mut a,w,h,vec![]);}
+        assert_eq!(a.studio.scene,old,"opening and picking from catalog must not change scene");
+        let start=egui::pos2(60.0,190.0);let end=egui::pos2(220.0,310.0);
+        point(&ctx,&mut a,w,h,start,true);
+        frame(&ctx,&mut a,w,h,vec![egui::Event::PointerMoved(end)]);
+        point(&ctx,&mut a,w,h,end,false);
+        assert_eq!(a.studio.scene.nodes.len(),old.nodes.len()+1,"drawing should create exactly one panel");
+        let id=a.studio.selected.unwrap();assert_eq!(a.studio.scene.node(id).unwrap().kind,Kind::Panel);
+        let rect=a.studio.scene.screen_rect(id,a.canvas_bounds).unwrap();
+        assert!(rect.min.distance(start)<0.1&&rect.max.distance(end)<0.1);
+        a.studio.undo();assert_eq!(a.studio.scene,old);a.studio.redo();assert_ne!(a.studio.scene,old);a.studio.cancel();assert_eq!(a.studio.scene,old);
+    }
+}
+#[test]fn save_load_edited_scene_not_only_defaults(){
+    let ctx=egui::Context::default();let mut a=CaligoApp::visual_fixture(&ctx,Page::Home,false);
+    frame(&ctx,&mut a,1000.0,620.0,vec![]);a.studio.begin();a.studio.snap=false;
+    for _ in 0..3{frame(&ctx,&mut a,1000.0,620.0,vec![]);}
+    let(id,r)=get(&a,Kind::Play);let dest=r.center()-egui::vec2(310.0,30.0);
+    point(&ctx,&mut a,1000.0,620.0,r.center(),true);
+    frame(&ctx,&mut a,1000.0,620.0,vec![egui::Event::PointerMoved(dest)]);
+    point(&ctx,&mut a,1000.0,620.0,dest,false);
+    a.studio.scene.node_mut(id).unwrap().style.radius=23.0;
+    let dir=std::env::temp_dir().join(format!("caligo-gesture-save-{}-{}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    crate::canvas_store::save(&dir,0,&a.studio.scene).unwrap();
+    let (_,loaded)=crate::canvas_store::load(&dir).unwrap().unwrap();
+    assert_eq!(a.studio.scene,loaded);assert_eq!(loaded.node(id).unwrap().style.radius,23.0);
+    assert!((loaded.screen_rect(id,a.canvas_bounds).unwrap().center()-dest).length()<0.1);
+    std::fs::remove_dir_all(dir).unwrap();
+}
 }
