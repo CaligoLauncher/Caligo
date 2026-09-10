@@ -1,16 +1,67 @@
-# Caligo
+# Caligo — GPUI, шаг 1
 
-A custom Minecraft launcher written in Rust.
+Перезапуск с нуля. Сейчас это **только окно и панель справа** с кнопками
+«Главная» и «Настройки». Обе области содержимого намеренно пустые.
+Кнопки меняют только выделенный пункт; настроек приложения пока нет.
 
-- UI: egui / eframe (dark theme by default, runtime-themeable via JSON presets — planned)
-- Plugins: WASM-based plugin tabs (planned)
-- Mod loaders: Fabric / Forge / Quilt (planned)
-- Friends: modpack sharing via serializable manifests (planned)
+В этой версии нет старого кода запуска Minecraft, аутентификации, сборок,
+скина, тем, редактора, плагинов и сетевых задач. Старую реализацию можно
+найти в истории Git. Каталог данных `.caligo` не читается и не изменяется.
 
-## Development
+## Запуск в Windows
 
-```
+Нужны актуальный Rust stable (MSVC), Visual Studio Build Tools с компонентом
+«Разработка классических приложений на C++» и Windows SDK.
+
+```sh
 cargo run
 ```
 
-CI runs `cargo check` and `cargo test` on every push (see `.github/workflows/ci.yml`).
+Для оптимизированной сборки:
+
+```sh
+cargo run --release
+```
+
+GPUI 0.2.2 в release компилирует HLSL через `fxc.exe` из Windows SDK.
+Если он не обнаружен, задайте `GPUI_FXC_PATH` с путём к установленному
+`fxc.exe`. Это инструмент сборки, не требование к запуску готового приложения.
+
+Прямой UI dependency — опубликованный `gpui = 0.2.2`, без зависимости от
+ветки `main` Zed. У GPUI есть собственные транзитивные зависимости.
+Первое скачивание и компиляция не являются временем запуска готового окна.
+
+## Поведение
+
+- Окно 1000×620, минимальный размер 720×440.
+- Системный заголовок и штатные кнопки окна.
+- Панель справа, русские подписи, встроенный Manrope.
+- Мышь: выбор пункта, состояния наведения/нажатия.
+- Tab / Shift+Tab: фокус; Enter / Space: выбор.
+- Закрытие последнего окна завершает приложение.
+- В коде Caligo нет таймеров анимации, фоновых заданий, сетевых запросов
+  и обращения к пользовательским данным.
+
+Оформление этого шага не фиксирует будущий дизайн.
+Blur / Liquid Glass пока не реализованы. Память и CPU/GPU не измерены.
+
+## Проверки
+
+```sh
+cargo check --all-targets
+cargo test
+```
+
+Тесты проверяют только небольшую модель выбора пункта. Они не заменяют
+проверку реального окна, ввода, DPI и GPU в Windows.
+
+Существующий workflow GitHub Actions сохранён без изменений: Ubuntu,
+`cargo check --all-targets` и `cargo test` для pull request и push в `main`.
+Это не нативная Windows-проверка. Для Linux включён backend X11 GPUI;
+его сборка требует системных библиотек X11 / xkbcommon и шрифтов.
+
+## Шрифт
+
+Manrope: `assets/fonts/Manrope.ttf`, лицензия `assets/fonts/OFL.txt`.
+Старые игровые модули и неиспользуемые ресурсы удалены, шрифт и его
+лицензия сохранены.
