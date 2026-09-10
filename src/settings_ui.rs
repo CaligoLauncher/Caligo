@@ -5,7 +5,7 @@ use gpui::{
     Stateful, Window, div, img, prelude::*, px, rgb, rgba,
 };
 
-use crate::{appearance_settings::{self, AppearanceSettings}, shell::Shell, wallpaper};
+use crate::{appearance_settings::{self, AppearanceSettings}, shell::Shell, wallpaper, ui::{self, ButtonKind, Icon}};
 
 #[derive(Clone, Copy)]
 pub(crate) enum WallpaperAction {
@@ -179,20 +179,9 @@ impl Shell {
 
     fn wallpaper_button(&self, action: WallpaperAction, cx: &mut Context<Self>) -> Stateful<Div> {
         let busy = self.appearance.busy;
-        div()
-            .id(action.id())
-            .track_focus(&self.appearance.focus[action.index()])
-            .h(px(42.0))
-            .px(px(14.0))
-            .flex().items_center().justify_center()
-            .rounded(px(9.0)).border_1()
-            .border_color(rgb(0x344154))
-            .bg(rgb(if busy { 0x1b2029 } else { 0x283343 }))
-            .text_color(rgb(if busy { 0x667489 } else { 0xedf3fc }))
-            .when(!busy, |style| style.cursor_pointer()
-                .hover(|style| style.bg(rgb(0x303e51)))
-                .active(|style| style.bg(rgb(0x354358))))
-            .focus(|style| style.border_color(rgb(0x9dbce6)))
+        let choose = matches!(action, WallpaperAction::Choose);
+        ui::control(action.id(), &self.appearance.focus[action.index()],
+            if choose { ButtonKind::Primary } else { ButtonKind::Quiet }, !busy)
             .on_click(cx.listener(move |this, _, window, cx| {
                 window.focus(&this.appearance.focus[action.index()]);
                 this.wallpaper_action(action, window, cx);
@@ -203,55 +192,52 @@ impl Shell {
                     cx.stop_propagation();
                 }
             }))
+            .child(ui::icon(if choose { Icon::Picture } else { Icon::Remove }, 16.0,
+                if busy { ui::MUTED } else if choose { ui::PRIMARY_TEXT } else { ui::SECONDARY }))
             .child(action.label())
     }
 
     pub(crate) fn settings_page(&self, cx: &mut Context<Self>) -> Stateful<Div> {
-        div()
-            .id("settings-page")
-            .flex_1().min_w_0().h_full().overflow_y_scroll()
+        div().id("settings-page").flex_1().min_w_0().h_full().overflow_y_scroll()
             .pr(px(16.0)).py(px(16.0))
-            .child(
-                div().w_full().max_w(px(620.0)).p(px(24.0))
-                    .flex().flex_col().gap(px(16.0))
-                    .rounded(px(16.0)).border_1()
-                    .border_color(rgb(0x2c3441)).bg(rgb(0x1b2029))
-                    .child(div().text_size(px(24.0)).child("Настройки"))
-                    .child(div().text_color(rgb(0xb5bfce)).child("Оформление"))
-                    .child(
-                        div().relative().w_full().h(px(132.0)).flex_shrink_0().overflow_hidden()
-                            .rounded(px(10.0)).bg(rgb(0x12161d))
-                            .when_some(self.appearance.image.clone(), |view, image| {
-                                view.child(img(image).absolute().top(px(0.0)).left(px(0.0))
-                                    .size_full().object_fit(self.wallpaper_fit()))
+            .child(div().w_full().max_w(px(660.0)).flex().flex_col().gap(px(16.0))
+                .child(ui::panel().p(px(22.0)).flex().flex_col().gap(px(6.0))
+                    .child(ui::heading("Оформление"))
+                    .child(ui::hint("Настройки внешнего вида Caligo")))
+                .child(ui::panel().p(px(22.0)).flex().flex_col().gap(px(16.0))
+                    .child(div().flex().items_center().gap(px(10.0))
+                        .child(ui::icon(Icon::Picture, 20.0, ui::ACCENT))
+                        .child(ui::section_title("Обои")))
+                    .child(div().relative().w_full().h(px(164.0)).flex_shrink_0().overflow_hidden()
+                        .rounded(px(10.0)).border_1().border_color(rgb(ui::EDGE))
+                        .bg(rgb(ui::BACKGROUND))
+                        .when_some(self.appearance.image.clone(), |view, image| {
+                            view.child(img(image).absolute().top(px(0.0)).left(px(0.0))
+                                .size_full().object_fit(self.wallpaper_fit()))
                                 .when(self.appearance.preferences.dim_percent > 0, |view| {
                                     view.child(div().absolute().top(px(0.0)).left(px(0.0)).size_full()
                                         .bg(rgba(self.appearance.preferences.overlay_rgba())))
                                 })
-                            })
-                            .when(self.appearance.image.is_none(), |view| {
-                                view.flex().items_center().justify_center()
-                                    .text_color(rgb(0x8995a8)).child("Стандартный фон")
-                            }),
-                    )
-                    .child(div().text_size(px(16.0)).child("Обои"))
-                    .child(div().text_color(rgb(0xb5bfce))
-                        .child("PNG или JPEG, до 32 МБ. Пропорции сохраняются. Режим отображения выбирается ниже."))
+                        })
+                        .when(self.appearance.image.is_none(), |view| {
+                            view.flex().flex_col().items_center().justify_center().gap(px(12.0))
+                                .child(ui::emblem(Icon::Picture, 44.0))
+                                .child(ui::hint("Выбери изображение для своего пространства"))
+                        }))
                     .child(div().flex().flex_wrap().gap(px(8.0))
                         .child(self.wallpaper_button(WallpaperAction::Choose, cx))
                         .child(self.wallpaper_button(WallpaperAction::Reset, cx)))
+                    .child(ui::hint("PNG или JPEG, до 32 МБ. Сохраняется отдельная копия — оригинал не меняется."))
                     .when_some(self.appearance.message.clone(), |view, message| {
-                        view.child(div().text_color(rgb(if self.appearance.error {
-                            0xffaaa4
-                        } else {
-                            0xb5bfce
-                        })).child(message))
-                    })
-                    .child(div().text_size(px(12.0)).text_color(rgb(0x8995a8))
-                        .child("Сохраняется отдельная копия обоев. Исходный файл можно переместить или удалить."))
-                    .child(self.appearance_controls(cx)),
-            )
+                        view.child(div().p(px(12.0)).rounded(px(8.0))
+                            .bg(rgb(if self.appearance.error { 0x332326 } else { ui::BACKGROUND }))
+                            .text_size(px(13.0)).line_height(px(20.0))
+                            .text_color(rgb(if self.appearance.error { ui::ERROR } else { ui::SUCCESS }))
+                            .child(message))
+                    }))
+                .child(self.appearance_controls(cx)))
     }
+
 }
 
 #[cfg(test)]

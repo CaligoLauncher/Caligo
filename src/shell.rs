@@ -2,7 +2,7 @@ use gpui::{
     Context, Div, FocusHandle, KeyDownEvent, Stateful, Window, actions, div, img, prelude::*, px, rgb, rgba,
 };
 
-use crate::{native_window, settings_ui::Appearance};
+use crate::{native_window, settings_ui::Appearance, ui::{self, ButtonKind, Icon}};
 
 actions!(caligo, [FocusNext, FocusPrevious]);
 
@@ -106,26 +106,14 @@ impl Shell {
 
     fn button(&self, page: Page, cx: &mut Context<Self>) -> Stateful<Div> {
         let selected = self.navigation.selected == page;
-        div()
-            .id(page.id())
-            .track_focus(&self.button_focus[page.index()])
-            .w_full()
-            .h(px(44.0)).flex_shrink_0()
-            .flex()
-            .items_center()
-            .gap(px(12.0))
-            .px(px(14.0))
-            .rounded(px(10.0))
-            .border_1()
-            .border_color(rgb(if selected { 0x344154 } else { 0x1b2029 }))
-            .bg(rgb(if selected { 0x283343 } else { 0x1b2029 }))
-            .text_color(rgb(if selected { 0xedf3fc } else { 0xb5bfce }))
-            .cursor_pointer()
-            .hover(move |style| {
-                style.bg(rgb(if selected { 0x303e51 } else { 0x252d39 }))
-            })
-            .active(|style| style.bg(rgb(0x354358)))
-            .focus(|style| style.border_color(rgb(0x9dbce6)))
+        let symbol = match page {
+            Page::Home => Icon::Home, Page::Builds => Icon::Layers, Page::Settings => Icon::Settings,
+        };
+        ui::control(page.id(), &self.button_focus[page.index()],
+            if selected { ButtonKind::Selected } else { ButtonKind::Quiet }, true)
+            .relative().w_full().h(px(44.0)).justify_start().gap(px(12.0))
+            .bg(rgb(if selected { ui::SELECTED } else { ui::SURFACE }))
+            .border_color(rgb(ui::SURFACE))
             .on_click(cx.listener(move |this, _, window, cx| {
                 window.focus(&this.button_focus[page.index()]);
                 this.select(page, cx);
@@ -138,13 +126,10 @@ impl Shell {
                     cx.stop_propagation();
                 }
             }))
-            .child(
-                div()
-                    .w(px(3.0))
-                    .h(px(16.0))
-                    .rounded(px(2.0))
-                    .bg(rgb(if selected { 0xa7c4ed } else { 0x667489 })),
-            )
+            .when(selected, |button| button.child(div().absolute().left(px(0.0))
+                .top(px(13.0)).w(px(3.0)).h(px(16.0))
+                .rounded(px(2.0)).bg(rgb(ui::ACCENT))))
+            .child(ui::icon(symbol, 19.0, if selected { ui::ACCENT } else { ui::MUTED }))
             .child(page.label())
     }
 }
@@ -160,8 +145,8 @@ impl Render for Shell {
             .size_full()
             .relative().overflow_hidden()
             .flex()
-            .bg(rgb(0x12161d))
-            .text_color(rgb(0xedf3fc))
+            .bg(rgb(ui::BACKGROUND))
+            .text_color(rgb(ui::TEXT))
             .font_family("Manrope")
             .text_size(px(14.0))
             .when_some(self.appearance.image.clone(), |root, image| {
@@ -172,32 +157,23 @@ impl Render for Shell {
                     .bg(rgba(self.appearance.preferences.overlay_rgba())))
             })
             .child(
-                div()
-                    .id("left-panel")
-                    .overflow_y_scroll()
-                    .w(px(208.0))
-                    .flex_shrink_0()
-                    .m(px(16.0))
-                    .p(px(12.0))
-                    .flex()
-                    .flex_col()
-                    .gap(px(8.0))
-                    .rounded(px(16.0))
-                    .border_1()
-                    .border_color(rgb(0x2c3441))
-                    .bg(rgb(0x1b2029))
-                    .child(
-                        div()
-                            .flex_shrink_0().px(px(14.0))
-                            .pt(px(10.0))
-                            .pb(px(24.0))
-                            .text_size(px(20.0))
-                            .child("Caligo"),
-                    )
+                ui::panel()
+                    .id("left-panel").overflow_y_scroll()
+                    .w(px(200.0)).flex_shrink_0()
+                    .m(px(16.0)).p(px(10.0))
+                    .flex().flex_col().gap(px(6.0))
+                    .bg(rgb(ui::SURFACE))
+                    .child(div().flex_shrink_0().px(px(12.0)).pt(px(10.0)).pb(px(24.0))
+                        .flex().flex_col().gap(px(4.0))
+                        .child(div().text_size(px(23.0)).line_height(px(30.0)).child("Caligo"))
+                        .child(ui::hint("Minecraft Launcher")))
                     .children(Page::ALL.into_iter().map(|page| self.button(page, cx)))
                     .when(self.navigation.selected == Page::Builds, |panel| {
                         panel.child(self.builds_sidebar(cx))
-                    }),
+                    })
+                    .child(div().flex_1().min_h(px(24.0)))
+                    .child(div().flex_shrink_0().px(px(12.0)).pb(px(8.0))
+                        .child(ui::hint("Интерфейс в разработке"))),
             )
             .when(self.navigation.selected == Page::Home, |root| {
                 root.child(div().flex_1().h_full())

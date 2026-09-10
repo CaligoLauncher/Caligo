@@ -5,6 +5,7 @@ use crate::{
     appearance_settings::{self, AppearanceSettings, WallpaperMode},
     shell::Shell,
     wallpaper,
+    ui::{self, ButtonKind},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -116,18 +117,12 @@ impl Shell {
         let disabled = self.appearance.busy
             || (self.appearance.preferences_error.is_some() && action != AppearanceAction::Reset);
         let selected = action.selected(self.appearance.preferences);
-        div().id(action.id())
-            .track_focus(&self.appearance.preferences_focus[action.index()])
-            .h(px(42.0)).px(px(14.0))
-            .flex().items_center().justify_center()
-            .rounded(px(9.0)).border_1()
-            .border_color(rgb(if selected { 0x9dbce6 } else { 0x344154 }))
-            .bg(rgb(if selected { 0x283343 } else { 0x1b2029 }))
-            .text_color(rgb(if disabled { 0x667489 } else { 0xedf3fc }))
-            .when(!disabled, |style| style.cursor_pointer()
-                .hover(|style| style.bg(rgb(0x303e51)))
-                .active(|style| style.bg(rgb(0x354358))))
-            .focus(|style| style.border_color(rgb(0xe2edff)))
+        ui::control(action.id(), &self.appearance.preferences_focus[action.index()],
+            if selected { ButtonKind::Selected } else { ButtonKind::Quiet }, !disabled)
+            .relative()
+            .when(selected, |button| button.child(div().absolute().bottom(px(2.0))
+                .left(px(13.0)).right(px(13.0)).h(px(2.0))
+                .rounded(px(1.0)).bg(rgb(ui::ACCENT))))
             .on_click(cx.listener(move |this, _, window, cx| {
                 window.focus(&this.appearance.preferences_focus[action.index()]);
                 this.appearance_action(action, window, cx);
@@ -142,34 +137,38 @@ impl Shell {
     }
 
     pub(crate) fn appearance_controls(&self, cx: &mut Context<Self>) -> Div {
-        div().flex().flex_col().gap(px(12.0))
-            .child(div().text_size(px(16.0)).child("Размещение"))
-            .child(div().flex().flex_wrap().gap(px(8.0))
-                .child(self.appearance_button(AppearanceAction::Cover, cx))
-                .child(self.appearance_button(AppearanceAction::Contain, cx)))
-            .child(div().text_color(rgb(0xb5bfce)).child(match self.appearance.preferences.mode {
-                WallpaperMode::Cover => "Заполнить: без полей, края картинки могут обрезаться.",
-                WallpaperMode::Contain => "Вписать: картинка целиком, свободное место — тёмные поля.",
-            }))
-            .child(div().text_size(px(16.0)).child(format!(
-                "Затемнение — {}%", self.appearance.preferences.dim_percent)))
-            .child(div().flex().flex_wrap().gap(px(8.0)).children(
-                [AppearanceAction::Dim0, AppearanceAction::Dim20, AppearanceAction::Dim40, AppearanceAction::Dim60]
-                    .into_iter().map(|action| self.appearance_button(action, cx))))
-            .child(div().text_size(px(12.0)).text_color(rgb(0x8995a8))
-                .child("Меняется только фон: панели и текст не затемняются. Без обоев выбор сохранится для следующей картинки."))
+        div().flex().flex_col().gap(px(16.0))
+            .child(ui::panel().p(px(22.0)).flex().flex_col().gap(px(14.0))
+                .child(ui::section_title("Размещение"))
+                .child(div().flex().flex_wrap().gap(px(6.0))
+                    .child(self.appearance_button(AppearanceAction::Cover, cx))
+                    .child(self.appearance_button(AppearanceAction::Contain, cx)))
+                .child(ui::hint(match self.appearance.preferences.mode {
+                    WallpaperMode::Cover => "Без полей. Края изображения могут обрезаться; пропорции сохраняются.",
+                    WallpaperMode::Contain => "Изображение целиком. Свободное место заполняется тёмным фоном.",
+                }))
+                .child(ui::separator().my(px(4.0)))
+                .child(ui::section_title("Затемнение"))
+                .child(div().flex().flex_wrap().gap(px(6.0)).children(
+                    [AppearanceAction::Dim0, AppearanceAction::Dim20, AppearanceAction::Dim40, AppearanceAction::Dim60]
+                        .into_iter().map(|action| self.appearance_button(action, cx))))
+                .child(ui::hint("Только обои — панели и текст остаются светлыми. Выбор сохраняется и без изображения.")))
             .when_some(self.appearance.preferences_message.clone(), |view, message| {
-                view.child(div().text_color(rgb(0xb5bfce)).child(message))
+                view.child(ui::panel().p(px(14.0)).text_size(px(13.0))
+                    .text_color(rgb(ui::SUCCESS)).child(message))
             })
             .when_some(self.appearance.preferences_error.clone(), |view, error| {
-                view.child(div().text_color(rgb(0xffaaa4)).child(format!(
-                    "{error} Обычные изменения приостановлены. После устранения проблемы перезапустите приложение или явно сбросьте оформление.")))
+                view.child(ui::panel().p(px(16.0)).bg(rgb(0x332326))
+                    .text_size(px(13.0)).line_height(px(20.0)).text_color(rgb(ui::ERROR))
+                    .child(format!("{error} Обычные изменения приостановлены. Исправьте файл и перезапустите приложение либо явно сбросьте оформление.")))
             })
-            .child(div().flex().flex_wrap()
-                .child(self.appearance_button(AppearanceAction::Reset, cx)))
-            .child(div().text_size(px(12.0)).text_color(rgb(0x8995a8))
-                .child("Сброс оформления: «Заполнить» и 0%, без удаления обоев. Повреждённые настройки заменяются только по этой кнопке."))
+            .child(ui::panel().p(px(22.0)).flex().flex_col().gap(px(12.0))
+                .child(ui::section_title("Вернуть стандартные параметры"))
+                .child(ui::hint("«Заполнить» и 0% затемнения. Обои останутся; повреждённые настройки заменяются только по этой кнопке."))
+                .child(div().flex().flex_wrap()
+                    .child(self.appearance_button(AppearanceAction::Reset, cx))))
     }
+
 }
 
 #[cfg(test)]
