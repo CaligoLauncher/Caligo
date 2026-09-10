@@ -1,8 +1,9 @@
 //! A real OS caption, not a client-side approximation.
+pub type ApplyTitlebar = Box<dyn FnOnce() -> Result<(), String>>;
 #[cfg(target_os = "windows")]
 pub fn prepare_native_titlebar(
     window: &gpui::Window,
-) -> Result<impl FnOnce() -> Result<(), String> + 'static, String> {
+) -> Result<ApplyTitlebar, String> {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use windows::Win32::{
         Foundation::{GetLastError, HWND, SetLastError, WIN32_ERROR},
@@ -14,7 +15,7 @@ pub fn prepare_native_titlebar(
         return Err("Окно не предоставляет Win32 handle.".into());
     };
     let address = raw.hwnd.get();
-    Ok(move || {
+    Ok(Box::new(move || {
     let hwnd = HWND(address as *mut std::ffi::c_void);
 
     // GPUI 0.2.2 defers non-client layout/hit testing when
@@ -44,12 +45,12 @@ pub fn prepare_native_titlebar(
         }
     }
     Ok(())
-    })
+    }))
 }
 
 #[cfg(not(target_os = "windows"))]
 pub fn prepare_native_titlebar(
     _window: &gpui::Window,
-) -> Result<impl FnOnce() -> Result<(), String> + 'static, String> {
-    Ok(|| Ok(()))
+) -> Result<ApplyTitlebar, String> {
+    Ok(Box::new(|| Ok(())))
 }
