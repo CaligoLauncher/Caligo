@@ -1,6 +1,9 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 mod shell;
+mod wallpaper;
+mod settings_ui;
+mod native_window;
 
 use std::borrow::Cow;
 
@@ -36,7 +39,7 @@ fn main() {
                 window_min_size: Some(size(px(720.0), px(440.0))),
                 titlebar: Some(TitlebarOptions {
                     title: Some("Caligo".into()),
-                    // Use native window controls for this intentionally small first step.
+                    // Keep OS non-client layout/hit testing; native_window restores WS_CAPTION on Windows.
                     appears_transparent: false,
                     ..Default::default()
                 }),

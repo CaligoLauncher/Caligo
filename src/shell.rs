@@ -1,6 +1,8 @@
 use gpui::{
-    Context, Div, FocusHandle, KeyDownEvent, Stateful, Window, actions, div, prelude::*, px, rgb,
+    Context, Div, FocusHandle, KeyDownEvent, ObjectFit, Stateful, Window, actions, div, img, prelude::*, px, rgb,
 };
+
+use crate::{native_window, settings_ui::Appearance};
 
 actions!(caligo, [FocusNext, FocusPrevious]);
 
@@ -42,7 +44,7 @@ struct Navigation {
 }
 
 impl Navigation {
-    /// The only application state in step one. No I/O or page functionality.
+    /// Return whether navigation actually changed.
     fn select(&mut self, page: Page) -> bool {
         if self.selected == page {
             return false;
@@ -54,6 +56,8 @@ impl Navigation {
 
 pub struct Shell {
     navigation: Navigation,
+    pub(crate) appearance: Appearance,
+    native_error: Option<String>,
     root_focus: FocusHandle,
     button_focus: [FocusHandle; 2],
 }
@@ -62,14 +66,29 @@ impl Shell {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let root_focus = cx.focus_handle();
         window.focus(&root_focus);
-        Self {
+        let native_titlebar = native_window::prepare_native_titlebar(window);
+        cx.spawn_in(window, async move |this, cx| {
+            if this.upgrade().is_none() { return; }
+            // Outside an App/Window borrow: Win32 frame changes send resize callbacks.
+            let error = native_titlebar.and_then(|apply| apply()).err();
+            let _ = this.update_in(cx, |this, window, cx| {
+                this.native_error = error;
+                window.refresh();
+                cx.notify();
+            });
+        }).detach();
+        let mut shell = Self {
+            appearance: Appearance::new(cx),
+            native_error: None,
             navigation: Navigation::default(),
             root_focus,
             button_focus: [
                 cx.focus_handle().tab_index(0).tab_stop(true),
                 cx.focus_handle().tab_index(1).tab_stop(true),
             ],
-        }
+        };
+        shell.restore_wallpaper(window, cx);
+        shell
     }
 
     fn select(&mut self, page: Page, cx: &mut Context<Self>) {
@@ -132,11 +151,15 @@ impl Render for Shell {
             .on_action(|_: &FocusNext, window, _| window.focus_next())
             .on_action(|_: &FocusPrevious, window, _| window.focus_prev())
             .size_full()
+            .relative().overflow_hidden()
             .flex()
             .bg(rgb(0x12161d))
             .text_color(rgb(0xedf3fc))
             .font_family("Manrope")
             .text_size(px(14.0))
+            .when_some(self.appearance.image.clone(), |root, image| {
+                root.child(img(image).absolute().top(px(0.0)).left(px(0.0)).size_full().object_fit(ObjectFit::Cover))
+            })
             .child(
                 div()
                     .id("left-panel")
@@ -161,8 +184,18 @@ impl Render for Shell {
                     )
                     .children(Page::ALL.into_iter().map(|page| self.button(page, cx))),
             )
-            // Intentionally empty: neither page has content or backend yet.
-            .child(div().flex_1().h_full())
+            .when(self.navigation.selected == Page::Home, |root| {
+                root.child(div().flex_1().h_full())
+            })
+            .when(self.navigation.selected == Page::Settings, |root| {
+                root.child(self.settings_page(cx))
+            })
+            .when_some(self.native_error.clone(), |root, error| {
+                root.child(div().absolute().bottom(px(12.0)).right(px(16.0))
+                    .max_w(px(430.0)).p(px(12.0)).rounded(px(8.0))
+                    .bg(rgb(0x47282b)).text_color(rgb(0xffd2ce))
+                    .child(format!("Не удалось включить системный заголовок: {error}")))
+            })
     }
 }
 
