@@ -48,13 +48,13 @@ impl Appearance {
             preferences_error: None,
             preferences_message: None,
             preferences_focus: std::array::from_fn(|i| {
-                cx.focus_handle().tab_index((i + 4) as isize).tab_stop(true)
+                cx.focus_handle().tab_index((i + 5) as isize).tab_stop(true)
             }),
             message: Some("Загрузка настроек…".into()),
             error: false,
             focus: [
-                cx.focus_handle().tab_index(2).tab_stop(true),
                 cx.focus_handle().tab_index(3).tab_stop(true),
+                cx.focus_handle().tab_index(4).tab_stop(true),
             ],
         }
     }

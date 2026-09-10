@@ -10,22 +10,25 @@ actions!(caligo, [FocusNext, FocusPrevious]);
 enum Page {
     #[default]
     Home,
+    Builds,
     Settings,
 }
 
 impl Page {
-    const ALL: [Self; 2] = [Self::Home, Self::Settings];
+    const ALL: [Self; 3] = [Self::Home, Self::Builds, Self::Settings];
 
     fn index(self) -> usize {
         match self {
             Self::Home => 0,
-            Self::Settings => 1,
+            Self::Builds => 1,
+            Self::Settings => 2,
         }
     }
 
     fn label(self) -> &'static str {
         match self {
             Self::Home => "Главная",
+            Self::Builds => "Сборки",
             Self::Settings => "Настройки",
         }
     }
@@ -33,6 +36,7 @@ impl Page {
     fn id(self) -> &'static str {
         match self {
             Self::Home => "home",
+            Self::Builds => "builds",
             Self::Settings => "settings",
         }
     }
@@ -57,9 +61,10 @@ impl Navigation {
 pub struct Shell {
     navigation: Navigation,
     pub(crate) appearance: Appearance,
+    pub(crate) builds: crate::builds_ui::BuildsUi,
     native_error: Option<String>,
     root_focus: FocusHandle,
-    button_focus: [FocusHandle; 2],
+    button_focus: [FocusHandle; 3],
 }
 
 impl Shell {
@@ -79,12 +84,14 @@ impl Shell {
         }).detach();
         let mut shell = Self {
             appearance: Appearance::new(cx),
+            builds: crate::builds_ui::BuildsUi::new(cx),
             native_error: None,
             navigation: Navigation::default(),
             root_focus,
             button_focus: [
                 cx.focus_handle().tab_index(0).tab_stop(true),
                 cx.focus_handle().tab_index(1).tab_stop(true),
+                cx.focus_handle().tab_index(2).tab_stop(true),
             ],
         };
         shell.restore_wallpaper(window, cx);
@@ -103,7 +110,7 @@ impl Shell {
             .id(page.id())
             .track_focus(&self.button_focus[page.index()])
             .w_full()
-            .h(px(44.0))
+            .h(px(44.0)).flex_shrink_0()
             .flex()
             .items_center()
             .gap(px(12.0))
@@ -167,6 +174,7 @@ impl Render for Shell {
             .child(
                 div()
                     .id("left-panel")
+                    .overflow_y_scroll()
                     .w(px(208.0))
                     .flex_shrink_0()
                     .m(px(16.0))
@@ -180,16 +188,22 @@ impl Render for Shell {
                     .bg(rgb(0x1b2029))
                     .child(
                         div()
-                            .px(px(14.0))
+                            .flex_shrink_0().px(px(14.0))
                             .pt(px(10.0))
                             .pb(px(24.0))
                             .text_size(px(20.0))
                             .child("Caligo"),
                     )
-                    .children(Page::ALL.into_iter().map(|page| self.button(page, cx))),
+                    .children(Page::ALL.into_iter().map(|page| self.button(page, cx)))
+                    .when(self.navigation.selected == Page::Builds, |panel| {
+                        panel.child(self.builds_sidebar(cx))
+                    }),
             )
             .when(self.navigation.selected == Page::Home, |root| {
                 root.child(div().flex_1().h_full())
+            })
+            .when(self.navigation.selected == Page::Builds, |root| {
+                root.child(self.builds_page(cx))
             })
             .when(self.navigation.selected == Page::Settings, |root| {
                 root.child(self.settings_page(cx))
@@ -230,10 +244,13 @@ mod tests {
     }
 
     #[test]
-    fn only_home_and_settings_are_available() {
-        assert_eq!(Page::ALL, [Page::Home, Page::Settings]);
+    fn home_builds_and_settings_have_unique_navigation_slots() {
+        assert_eq!(Page::ALL, [Page::Home, Page::Builds, Page::Settings]);
         assert_eq!(Page::Home.index(), 0);
-        assert_eq!(Page::Settings.index(), 1);
+        assert_eq!(Page::Builds.index(), 1);
+        assert_eq!(Page::Settings.index(), 2);
+        assert_ne!(Page::Builds.id(), Page::Settings.id());
+        assert_ne!(Page::Builds.id(), Page::Home.id());
         assert_ne!(Page::Home.id(), Page::Settings.id());
     }
 }

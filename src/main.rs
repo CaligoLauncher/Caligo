@@ -1,6 +1,8 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 mod shell;
+mod builds;
+mod builds_ui;
 mod wallpaper;
 mod settings_ui;
 mod appearance_settings;
