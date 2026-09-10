@@ -137,11 +137,9 @@ impl Render for Shell {
             .text_color(rgb(0xedf3fc))
             .font_family("Manrope")
             .text_size(px(14.0))
-            // Intentionally empty: neither page has content or backend yet.
-            .child(div().flex_1().h_full())
             .child(
                 div()
-                    .id("right-panel")
+                    .id("left-panel")
                     .w(px(208.0))
                     .flex_shrink_0()
                     .m(px(16.0))
@@ -163,6 +161,8 @@ impl Render for Shell {
                     )
                     .children(Page::ALL.into_iter().map(|page| self.button(page, cx))),
             )
+            // Intentionally empty: neither page has content or backend yet.
+            .child(div().flex_1().h_full())
     }
 }
 
