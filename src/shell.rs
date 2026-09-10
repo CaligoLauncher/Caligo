@@ -1,5 +1,5 @@
 use gpui::{
-    Context, Div, FocusHandle, KeyDownEvent, ObjectFit, Stateful, Window, actions, div, img, prelude::*, px, rgb,
+    Context, Div, FocusHandle, KeyDownEvent, Stateful, Window, actions, div, img, prelude::*, px, rgb, rgba,
 };
 
 use crate::{native_window, settings_ui::Appearance};
@@ -158,7 +158,11 @@ impl Render for Shell {
             .font_family("Manrope")
             .text_size(px(14.0))
             .when_some(self.appearance.image.clone(), |root, image| {
-                root.child(img(image).absolute().top(px(0.0)).left(px(0.0)).size_full().object_fit(ObjectFit::Cover))
+                root.child(img(image).absolute().top(px(0.0)).left(px(0.0)).size_full().object_fit(self.wallpaper_fit()))
+            })
+            .when(self.appearance.image.is_some() && self.appearance.preferences.dim_percent > 0, |root| {
+                root.child(div().absolute().top(px(0.0)).left(px(0.0)).size_full()
+                    .bg(rgba(self.appearance.preferences.overlay_rgba())))
             })
             .child(
                 div()

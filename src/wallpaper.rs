@@ -1,4 +1,4 @@
-//! The GPUI shell owns only `gpui/wallpaper.png`; legacy game/editor data is untouched.
+//! Wallpaper image storage owns only `gpui/wallpaper.png`; presentation preferences live separately.
 use std::{
     env,
     fs::{self, File},

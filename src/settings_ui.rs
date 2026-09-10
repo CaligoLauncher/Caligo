@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
 use gpui::{
-    Context, Div, FocusHandle, KeyDownEvent, ObjectFit, PathPromptOptions, RenderImage,
-    Stateful, Window, div, img, prelude::*, px, rgb,
+    Context, Div, FocusHandle, KeyDownEvent, PathPromptOptions, RenderImage,
+    Stateful, Window, div, img, prelude::*, px, rgb, rgba,
 };
 
-use crate::{shell::Shell, wallpaper};
+use crate::{appearance_settings::{self, AppearanceSettings}, shell::Shell, wallpaper};
 
 #[derive(Clone, Copy)]
 pub(crate) enum WallpaperAction {
@@ -19,7 +19,7 @@ impl WallpaperAction {
     }
 
     fn label(self) -> &'static str {
-        match self { Self::Choose => "Выбрать изображение…", Self::Reset => "Сбросить фон" }
+        match self { Self::Choose => "Выбрать изображение…", Self::Reset => "Убрать изображение" }
     }
 
     fn id(self) -> &'static str {
@@ -30,6 +30,10 @@ impl WallpaperAction {
 pub(crate) struct Appearance {
     pub(crate) image: Option<Arc<RenderImage>>,
     pub(crate) busy: bool,
+    pub(crate) preferences: AppearanceSettings,
+    pub(crate) preferences_error: Option<String>,
+    pub(crate) preferences_message: Option<String>,
+    pub(crate) preferences_focus: [FocusHandle; 7],
     message: Option<String>,
     error: bool,
     focus: [FocusHandle; 2],
@@ -40,6 +44,12 @@ impl Appearance {
         Self {
             image: None,
             busy: true,
+            preferences: AppearanceSettings::default(),
+            preferences_error: None,
+            preferences_message: None,
+            preferences_focus: std::array::from_fn(|i| {
+                cx.focus_handle().tab_index((i + 4) as isize).tab_stop(true)
+            }),
             message: Some("Загрузка настроек…".into()),
             error: false,
             focus: [
@@ -61,13 +71,22 @@ fn render_image(mut rgba: image::RgbaImage) -> Arc<RenderImage> {
 impl Shell {
     pub(crate) fn restore_wallpaper(&mut self, window: &Window, cx: &mut Context<Self>) {
         let task = cx.background_executor().spawn(async {
-            let root = wallpaper::directory()?;
-            wallpaper::restore(&root).map(|image| image.map(render_image))
+            match wallpaper::directory() {
+                Ok(root) => (
+                    wallpaper::restore(&root).map(|image| image.map(render_image)),
+                    appearance_settings::load(&root),
+                ),
+                Err(error) => (Err(error.clone()), Err(error)),
+            }
         });
         cx.spawn_in(window, async move |this, cx| {
-            let result = task.await;
+            let (image, preferences) = task.await;
             let _ = this.update_in(cx, |this, window, cx| {
-                this.finish_wallpaper(result, None, window, cx);
+                match preferences {
+                    Ok(value) => this.appearance.preferences = value,
+                    Err(error) => this.appearance.preferences_error = Some(error),
+                }
+                this.finish_wallpaper(image, None, window, cx);
             });
         }).detach();
     }
@@ -151,7 +170,7 @@ impl Shell {
                 cx.spawn_in(window, async move |this, cx| {
                     let result = task.await;
                     let _ = this.update_in(cx, |this, window, cx| {
-                        this.finish_wallpaper(result, Some("Стандартный фон восстановлен."), window, cx);
+                        this.finish_wallpaper(result, Some("Изображение убрано. Режим и затемнение сохранены."), window, cx);
                     });
                 }).detach();
             }
@@ -200,10 +219,15 @@ impl Shell {
                     .child(div().text_size(px(24.0)).child("Настройки"))
                     .child(div().text_color(rgb(0xb5bfce)).child("Оформление"))
                     .child(
-                        div().relative().w_full().h(px(132.0)).overflow_hidden()
+                        div().relative().w_full().h(px(132.0)).flex_shrink_0().overflow_hidden()
                             .rounded(px(10.0)).bg(rgb(0x12161d))
                             .when_some(self.appearance.image.clone(), |view, image| {
-                                view.child(img(image).size_full().object_fit(ObjectFit::Cover))
+                                view.child(img(image).absolute().top(px(0.0)).left(px(0.0))
+                                    .size_full().object_fit(self.wallpaper_fit()))
+                                .when(self.appearance.preferences.dim_percent > 0, |view| {
+                                    view.child(div().absolute().top(px(0.0)).left(px(0.0)).size_full()
+                                        .bg(rgba(self.appearance.preferences.overlay_rgba())))
+                                })
                             })
                             .when(self.appearance.image.is_none(), |view| {
                                 view.flex().items_center().justify_center()
@@ -212,7 +236,7 @@ impl Shell {
                     )
                     .child(div().text_size(px(16.0)).child("Обои"))
                     .child(div().text_color(rgb(0xb5bfce))
-                        .child("PNG или JPEG, до 32 МБ. Изображение заполняет фон без растягивания; края могут обрезаться."))
+                        .child("PNG или JPEG, до 32 МБ. Пропорции сохраняются. Режим отображения выбирается ниже."))
                     .child(div().flex().flex_wrap().gap(px(8.0))
                         .child(self.wallpaper_button(WallpaperAction::Choose, cx))
                         .child(self.wallpaper_button(WallpaperAction::Reset, cx)))
@@ -224,7 +248,8 @@ impl Shell {
                         })).child(message))
                     })
                     .child(div().text_size(px(12.0)).text_color(rgb(0x8995a8))
-                        .child("Сохраняется отдельная копия обоев. Исходный файл можно переместить или удалить.")),
+                        .child("Сохраняется отдельная копия обоев. Исходный файл можно переместить или удалить."))
+                    .child(self.appearance_controls(cx)),
             )
     }
 }

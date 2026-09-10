@@ -3,6 +3,8 @@
 mod shell;
 mod wallpaper;
 mod settings_ui;
+mod appearance_settings;
+mod appearance_controls;
 mod native_window;
 
 use std::borrow::Cow;
