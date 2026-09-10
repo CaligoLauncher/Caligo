@@ -5,7 +5,8 @@ mod shell;
 use std::borrow::Cow;
 
 use gpui::{
-    App, Application, Bounds, KeyBinding, TitlebarOptions, WindowBounds, WindowOptions, px, size,
+    App, Application, Bounds, KeyBinding, TitlebarOptions, WindowBounds, WindowOptions, prelude::*, px,
+    size,
 };
 use shell::{FocusNext, FocusPrevious, Shell};
 
