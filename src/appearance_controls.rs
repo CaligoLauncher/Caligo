@@ -142,7 +142,7 @@ pub(crate) fn appearance_controls(&self, cx: &mut Context<Self>) -> Div {
                         WallpaperMode::Cover => "Заполнение с обрезкой краёв.",
                         WallpaperMode::Contain => "Целиком, с полями по краям.",
                     })))
-                .child(div().p(px(3.0)).rounded(px(8.0)).bg(rgb(ui::BACKGROUND))
+                .child(div().p(px(3.0)).rounded(px(8.0)).bg(rgb(ui::RAISED))
                     .flex().gap(px(2.0))
                     .child(self.appearance_button(AppearanceAction::Cover, cx))
                     .child(self.appearance_button(AppearanceAction::Contain, cx))))
@@ -151,7 +151,7 @@ pub(crate) fn appearance_controls(&self, cx: &mut Context<Self>) -> Div {
                 .child(div().flex_1().min_w(px(180.0)).flex().flex_col().gap(px(4.0))
                     .child(ui::section_title("Затемнение"))
                     .child(ui::hint("Только фон, без затемнения текста.")))
-                .child(div().p(px(3.0)).rounded(px(8.0)).bg(rgb(ui::BACKGROUND))
+                .child(div().p(px(3.0)).rounded(px(8.0)).bg(rgb(ui::RAISED))
                     .flex().gap(px(2.0)).children(
                         [AppearanceAction::Dim0, AppearanceAction::Dim20, AppearanceAction::Dim40, AppearanceAction::Dim60]
                             .into_iter().map(|action| self.appearance_button(action, cx)))))

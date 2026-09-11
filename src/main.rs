@@ -4,6 +4,7 @@ mod ui;
 mod shell;
 mod builds;
 mod builds_ui;
+mod cover;
 mod wallpaper;
 mod settings_ui;
 mod appearance_settings;

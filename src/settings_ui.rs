@@ -197,7 +197,7 @@ impl Shell {
 
 pub(crate) fn settings_page(&self, wide: bool, cx: &mut Context<Self>) -> Stateful<Div> {
         let preview = div().relative().h(px(168.0)).flex_shrink_0().overflow_hidden()
-            .rounded(px(8.0)).bg(rgb(ui::BACKGROUND))
+            .rounded(px(8.0)).bg(ui::background())
             .when(wide, |view| view.w(px(272.0)))
             .when(!wide, |view| view.w_full())
             .when_some(self.appearance.image.clone(), |view, image| {
@@ -210,8 +210,8 @@ pub(crate) fn settings_page(&self, wide: bool, cx: &mut Context<Self>) -> Statef
             })
             .when(self.appearance.image.is_none(), |view| {
                 view.flex().flex_col().items_center().justify_center().gap(px(10.0))
-                    .child(ui::icon(Icon::Picture, 28.0, ui::MUTED))
-                    .child(ui::hint("Обои не выбраны"))
+                    .child(ui::icon(Icon::Picture, 28.0, ui::TEXT))
+                    .child(ui::hint("Обои не выбраны").text_color(rgb(ui::TEXT)))
             });
 
         div().id("settings-page").flex_1().min_w_0().h_full().overflow_y_scroll()

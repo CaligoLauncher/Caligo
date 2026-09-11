@@ -112,8 +112,11 @@ impl Shell {
         ui::control(page.id(), &self.button_focus[page.index()],
             if selected { ButtonKind::Selected } else { ButtonKind::Quiet }, true)
             .relative().w_full().h(px(44.0)).justify_start().gap(px(12.0))
-            .bg(rgb(if selected { ui::SELECTED } else { ui::SURFACE }))
-            .border_color(rgb(ui::SURFACE))
+            .bg(rgba(if selected { 0xf8fbfcf5 }
+                else if self.appearance.image.is_some() { 0xeef4f6f0 }
+                else { 0x00000000 }))
+            .border_color(rgba(if selected { 0x2f5263ff } else { 0x00000000 }))
+            .text_color(rgb(ui::TEXT))
             .on_click(cx.listener(move |this, _, window, cx| {
                 window.focus(&this.button_focus[page.index()]);
                 this.select(page, cx);
@@ -126,10 +129,7 @@ impl Shell {
                     cx.stop_propagation();
                 }
             }))
-            .when(selected, |button| button.child(div().absolute().left(px(0.0))
-                .top(px(13.0)).w(px(3.0)).h(px(16.0))
-                .rounded(px(2.0)).bg(rgb(ui::ACCENT))))
-            .child(ui::icon(symbol, 19.0, if selected { ui::ACCENT } else { ui::MUTED }))
+            .child(ui::icon(symbol, 19.0, ui::TEXT))
             .child(page.label())
     }
 }
@@ -145,7 +145,7 @@ impl Render for Shell {
             .size_full()
             .relative().overflow_hidden()
             .flex()
-            .bg(rgb(ui::BACKGROUND))
+            .bg(ui::background())
             .text_color(rgb(ui::TEXT))
             .font_family("Manrope")
             .text_size(px(14.0))
@@ -157,14 +157,16 @@ impl Render for Shell {
                     .bg(rgba(self.appearance.preferences.overlay_rgba())))
             })
             .child(
-                ui::panel()
+                div()
                     .id("left-panel").overflow_y_scroll()
                     .w(px(180.0)).flex_shrink_0()
-                    .m(px(16.0)).p(px(10.0))
+                    .m(px(16.0)).p(px(6.0))
                     .flex().flex_col().gap(px(6.0))
-                    .bg(rgb(ui::SURFACE))
-                    .child(div().flex_shrink_0().px(px(10.0)).pt(px(10.0)).pb(px(24.0))
-                        .text_size(px(23.0)).line_height(px(30.0)).child("Caligo"))
+                    // No enclosing slab. With custom wallpaper, only controls get a local scrim.
+                    .child(div().flex_shrink_0().mb(px(12.0)).px(px(10.0)).py(px(8.0))
+                        .rounded(px(8.0))
+                        .when(self.appearance.image.is_some(), |view| view.bg(rgba(0xeef4f6f0)))
+                        .text_size(px(21.0)).line_height(px(28.0)).child("Caligo"))
                     .children([Page::Home, Page::Builds].into_iter().map(|page| self.button(page, cx)))
                     .when(self.navigation.selected == Page::Builds, |panel| {
                         panel.child(self.builds_sidebar(cx))
@@ -176,7 +178,7 @@ impl Render for Shell {
                 root.child(div().flex_1().h_full())
             })
             .when(self.navigation.selected == Page::Builds, |root| {
-                root.child(self.builds_page(cx))
+                root.child(self.builds_page(window.viewport_size().width >= px(960.0), cx))
             })
             .when(self.navigation.selected == Page::Settings, |root| {
                 root.child(self.settings_page(window.viewport_size().width >= px(960.0), cx))
