@@ -1,27 +1,27 @@
 //! Caligo's small native visual vocabulary. No animation loop, I/O or renderer patches.
 use gpui::{
     Div, FocusHandle, IntoElement, PathBuilder, Stateful, canvas, div,
-    linear_color_stop, linear_gradient, point, prelude::*, px, rgb, rgba,
+    point, prelude::*, px, rgb, rgba,
 };
 
 pub(crate) const BACKGROUND: u32 = 0x11151c;
-pub(crate) const SURFACE: u32 = 0x191f28;
-pub(crate) const RAISED: u32 = 0x232c38;
-pub(crate) const EDGE: u32 = 0x151b24;
-pub(crate) const CONTROL_EDGE: u32 = 0x202936;
-pub(crate) const SELECTED: u32 = 0x29394d;
-pub(crate) const HOVER: u32 = 0x2d3949;
-pub(crate) const PRESSED: u32 = 0x35465d;
+pub(crate) const SURFACE: u32 = 0x191e25;
+pub(crate) const RAISED: u32 = 0x222b34;
+pub(crate) const EDGE: u32 = 0x10151b;
+pub(crate) const CONTROL_EDGE: u32 = 0x1d252e;
+pub(crate) const SELECTED: u32 = 0x293640;
+pub(crate) const HOVER: u32 = 0x2b3742;
+pub(crate) const PRESSED: u32 = 0x344452;
 pub(crate) const TEXT: u32 = 0xeaf0f8;
 pub(crate) const SECONDARY: u32 = 0xb1bece;
 pub(crate) const MUTED: u32 = 0x91a1b6;
-pub(crate) const ACCENT: u32 = 0xa7c8f5;
-pub(crate) const PRIMARY: u32 = 0xaacbf7;
+pub(crate) const ACCENT: u32 = 0xb2cadb;
+pub(crate) const PRIMARY: u32 = 0xb2cadb;
 pub(crate) const PRIMARY_TEXT: u32 = 0x142337;
 pub(crate) const FOCUS: u32 = 0xd6e7ff;
 pub(crate) const ERROR: u32 = 0xffb3ac;
 pub(crate) const SUCCESS: u32 = 0xb0d7c2;
-pub(crate) const RADIUS: f32 = 14.0;
+pub(crate) const RADIUS: f32 = 10.0;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ButtonKind {
@@ -44,19 +44,21 @@ pub(crate) fn control(
     div().id(id).track_focus(focus)
         .h(px(40.0)).px(px(13.0)).flex_shrink_0()
         .flex().items_center().justify_center().gap(px(8.0))
-        .rounded(px(9.0)).border_1()
-        .border_color(rgb(CONTROL_EDGE))
-        .bg(rgb(if enabled { fill(kind) } else { SURFACE }))
+        .rounded(px(7.0)).border_1()
+        .border_color(rgba(0x00000000))
+        .bg(rgba(if !enabled { (SURFACE << 8) | 0xff }
+            else if kind == ButtonKind::Quiet { 0x00000000 }
+            else { (fill(kind) << 8) | 0xff }))
         .text_size(px(13.0))
         .text_color(rgb(if !enabled { MUTED } else if kind == ButtonKind::Primary {
             PRIMARY_TEXT
         } else if kind == ButtonKind::Selected { TEXT } else { SECONDARY }))
         .when(enabled, |view| view.cursor_pointer()
             .hover(move |style| style.bg(rgb(if kind == ButtonKind::Primary {
-                0xc5ddff
+                0xc7dce8
             } else { HOVER })))
             .active(move |style| style.bg(rgb(if kind == ButtonKind::Primary {
-                0x91b6e9
+                0x9ab7cc
             } else { PRESSED }))))
         // Focus is deliberately brighter than the resting, darker outlines.
         .focus(move |style| style.border_color(rgb(if kind == ButtonKind::Primary && enabled {
@@ -67,7 +69,7 @@ pub(crate) fn control(
 /// Local, almost opaque surfaces: bright wallpaper cannot wash out the labels.
 pub(crate) fn panel() -> Div {
     div().rounded(px(RADIUS)).border_1().border_color(rgb(EDGE))
-        .bg(rgba(0x191f28fa))
+        .bg(rgba(0x191e25fa))
 }
 
 pub(crate) fn heading(text: impl IntoElement) -> Div {
@@ -82,11 +84,6 @@ pub(crate) fn section_title(text: &'static str) -> Div {
 pub(crate) fn hint(text: impl IntoElement) -> Div {
     div().text_size(px(12.0)).line_height(px(18.0))
         .text_color(rgb(MUTED)).child(text)
-}
-
-pub(crate) fn badge(text: &'static str) -> Div {
-    div().px(px(9.0)).py(px(4.0)).rounded(px(6.0))
-        .bg(rgb(RAISED)).text_size(px(11.0)).text_color(rgb(SECONDARY)).child(text)
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -163,14 +160,32 @@ pub(crate) fn icon(symbol: Icon, side: f32, color: u32) -> impl IntoElement {
     ).size(px(side)).flex_shrink_0()
 }
 
-pub(crate) fn emblem(symbol: Icon, side: f32) -> Div {
-    div().size(px(side)).flex_shrink_0().rounded(px(12.0))
-        .border_1().border_color(rgb(CONTROL_EDGE))
-        .bg(linear_gradient(135.0,
-            linear_color_stop(rgb(0x30445f), 0.0),
-            linear_color_stop(rgb(0x202a39), 1.0)))
-        .flex().items_center().justify_center()
-        .child(icon(symbol, side * 0.48, ACCENT))
+// Original static cover for the demo build. Not a logo or a wallpaper asset.
+const RIDGES: [&[(f32, f32)]; 3] = [
+    &[(0.0, 0.78), (0.26, 0.24), (0.55, 0.76), (0.79, 0.36), (1.0, 0.65), (1.0, 1.0), (0.0, 1.0)],
+    &[(0.0, 0.87), (0.36, 0.59), (0.68, 0.93), (1.0, 0.78), (1.0, 1.0), (0.0, 1.0)],
+    &[(0.0, 0.94), (0.45, 0.83), (0.78, 1.0), (1.0, 0.93), (1.0, 1.0), (0.0, 1.0)],
+];
+
+pub(crate) fn landscape_cover(side: f32) -> Div {
+    div().size(px(side)).flex_shrink_0().rounded(px(7.0)).overflow_hidden()
+        .bg(rgb(0x26343f))
+        .child(canvas(
+            |_, _, _| {},
+            move |bounds, _, window, _| {
+                for (points, color) in RIDGES.into_iter().zip([0x3d5363, 0x21323e, 0x182833]) {
+                    let mut path = PathBuilder::fill();
+                    for (i, (x, y)) in points.iter().enumerate() {
+                        let position = bounds.origin + point(px(x * side), px(y * side));
+                        if i == 0 { path.move_to(position); } else { path.line_to(position); }
+                    }
+                    path.close();
+                    if let Ok(path) = path.build() {
+                        window.paint_path(path, rgb(color));
+                    }
+                }
+            },
+        ).size_full())
 }
 
 pub(crate) fn separator() -> Div {
@@ -207,7 +222,7 @@ mod tests {
     #[test]
     fn body_and_secondary_text_keep_contrast() {
         // Worst-case white wallpaper through the panel's 250/255 alpha.
-        let white_backed_panel = 0x1e232c;
+        let white_backed_panel = 0x1e232a;
         for color in [TEXT, SECONDARY, MUTED] {
             assert!(contrast(color, white_backed_panel) >= 4.5);
         }
@@ -217,7 +232,7 @@ mod tests {
 
     #[test]
     fn primary_button_has_readable_dark_text() {
-        for background in [PRIMARY, 0xc5ddff, 0x91b6e9] {
+        for background in [PRIMARY, 0xc7dce8, 0x9ab7cc] {
             assert!(contrast(PRIMARY_TEXT, background) >= 4.5);
         }
     }
@@ -238,6 +253,14 @@ mod tests {
                 assert!(line.len() >= 2);
                 assert!(line.iter().all(|(x,y)| (0.0..=24.0).contains(x) && (0.0..=24.0).contains(y)));
             }
+        }
+    }
+
+    #[test]
+    fn cover_geometry_stays_inside_its_local_bounds() {
+        for polygon in RIDGES {
+            assert!(polygon.len() >= 3);
+            assert!(polygon.iter().all(|(x, y)| (0.0..=1.0).contains(x) && (0.0..=1.0).contains(y)));
         }
     }
 }

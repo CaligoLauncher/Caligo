@@ -192,49 +192,51 @@ impl Shell {
                     cx.stop_propagation();
                 }
             }))
-            .child(ui::icon(if choose { Icon::Picture } else { Icon::Remove }, 16.0,
-                if busy { ui::MUTED } else if choose { ui::PRIMARY_TEXT } else { ui::SECONDARY }))
             .child(action.label())
     }
 
-    pub(crate) fn settings_page(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+pub(crate) fn settings_page(&self, wide: bool, cx: &mut Context<Self>) -> Stateful<Div> {
+        let preview = div().relative().h(px(168.0)).flex_shrink_0().overflow_hidden()
+            .rounded(px(8.0)).bg(rgb(ui::BACKGROUND))
+            .when(wide, |view| view.w(px(272.0)))
+            .when(!wide, |view| view.w_full())
+            .when_some(self.appearance.image.clone(), |view, image| {
+                view.child(img(image).absolute().top(px(0.0)).left(px(0.0))
+                    .size_full().object_fit(self.wallpaper_fit()))
+                    .when(self.appearance.preferences.dim_percent > 0, |view| {
+                        view.child(div().absolute().top(px(0.0)).left(px(0.0)).size_full()
+                            .bg(rgba(self.appearance.preferences.overlay_rgba())))
+                    })
+            })
+            .when(self.appearance.image.is_none(), |view| {
+                view.flex().flex_col().items_center().justify_center().gap(px(10.0))
+                    .child(ui::icon(Icon::Picture, 28.0, ui::MUTED))
+                    .child(ui::hint("Обои не выбраны"))
+            });
+
         div().id("settings-page").flex_1().min_w_0().h_full().overflow_y_scroll()
             .pr(px(16.0)).py(px(16.0))
-            .child(div().w_full().max_w(px(660.0)).flex().flex_col().gap(px(16.0))
-                .child(ui::panel().p(px(22.0)).flex().flex_col().gap(px(6.0))
+            .child(ui::panel().w_full().min_h_full().p(px(24.0))
+                .flex().flex_col().gap(px(20.0))
+                .child(div().flex_shrink_0().flex().flex_col().gap(px(4.0))
                     .child(ui::heading("Оформление"))
-                    .child(ui::hint("Настройки внешнего вида Caligo")))
-                .child(ui::panel().p(px(22.0)).flex().flex_col().gap(px(16.0))
-                    .child(div().flex().items_center().gap(px(10.0))
-                        .child(ui::icon(Icon::Picture, 20.0, ui::ACCENT))
-                        .child(ui::section_title("Обои")))
-                    .child(div().relative().w_full().h(px(164.0)).flex_shrink_0().overflow_hidden()
-                        .rounded(px(10.0)).border_1().border_color(rgb(ui::EDGE))
-                        .bg(rgb(ui::BACKGROUND))
-                        .when_some(self.appearance.image.clone(), |view, image| {
-                            view.child(img(image).absolute().top(px(0.0)).left(px(0.0))
-                                .size_full().object_fit(self.wallpaper_fit()))
-                                .when(self.appearance.preferences.dim_percent > 0, |view| {
-                                    view.child(div().absolute().top(px(0.0)).left(px(0.0)).size_full()
-                                        .bg(rgba(self.appearance.preferences.overlay_rgba())))
-                                })
-                        })
-                        .when(self.appearance.image.is_none(), |view| {
-                            view.flex().flex_col().items_center().justify_center().gap(px(12.0))
-                                .child(ui::emblem(Icon::Picture, 44.0))
-                                .child(ui::hint("Выбери изображение для своего пространства"))
-                        }))
-                    .child(div().flex().flex_wrap().gap(px(8.0))
-                        .child(self.wallpaper_button(WallpaperAction::Choose, cx))
-                        .child(self.wallpaper_button(WallpaperAction::Reset, cx)))
-                    .child(ui::hint("PNG или JPEG, до 32 МБ. Сохраняется отдельная копия — оригинал не меняется."))
-                    .when_some(self.appearance.message.clone(), |view, message| {
-                        view.child(div().p(px(12.0)).rounded(px(8.0))
-                            .bg(rgb(if self.appearance.error { 0x332326 } else { ui::BACKGROUND }))
-                            .text_size(px(13.0)).line_height(px(20.0))
-                            .text_color(rgb(if self.appearance.error { ui::ERROR } else { ui::SUCCESS }))
-                            .child(message))
-                    }))
+                    .child(ui::hint("Обои и отображение")))
+                .child(ui::separator())
+                .child(div().flex_shrink_0().flex().gap(px(24.0))
+                    .when(!wide, |view| view.flex_col())
+                    .child(preview)
+                    .child(div().flex_1().min_w_0().flex().flex_col().gap(px(12.0))
+                        .child(ui::section_title("Обои"))
+                        .child(ui::hint("PNG или JPEG, до 32 МБ. Оригинал остаётся нетронутым."))
+                        .child(div().flex().flex_wrap().gap(px(4.0))
+                            .child(self.wallpaper_button(WallpaperAction::Choose, cx))
+                            .child(self.wallpaper_button(WallpaperAction::Reset, cx)))
+                        .when_some(self.appearance.message.clone(), |view, message| {
+                            view.child(div().text_size(px(13.0)).line_height(px(20.0))
+                                .text_color(rgb(if self.appearance.error { ui::ERROR } else { ui::SUCCESS }))
+                                .child(message))
+                        })))
+                .child(ui::separator())
                 .child(self.appearance_controls(cx)))
     }
 

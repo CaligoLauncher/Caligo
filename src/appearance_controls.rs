@@ -119,10 +119,7 @@ impl Shell {
         let selected = action.selected(self.appearance.preferences);
         ui::control(action.id(), &self.appearance.preferences_focus[action.index()],
             if selected { ButtonKind::Selected } else { ButtonKind::Quiet }, !disabled)
-            .relative()
-            .when(selected, |button| button.child(div().absolute().bottom(px(2.0))
-                .left(px(13.0)).right(px(13.0)).h(px(2.0))
-                .rounded(px(1.0)).bg(rgb(ui::ACCENT))))
+            .when(action != AppearanceAction::Reset, |button| button.h(px(36.0)))
             .on_click(cx.listener(move |this, _, window, cx| {
                 window.focus(&this.appearance.preferences_focus[action.index()]);
                 this.appearance_action(action, window, cx);
@@ -136,37 +133,41 @@ impl Shell {
             .child(action.label())
     }
 
-    pub(crate) fn appearance_controls(&self, cx: &mut Context<Self>) -> Div {
-        div().flex().flex_col().gap(px(16.0))
-            .child(ui::panel().p(px(22.0)).flex().flex_col().gap(px(14.0))
-                .child(ui::section_title("Размещение"))
-                .child(div().flex().flex_wrap().gap(px(6.0))
+pub(crate) fn appearance_controls(&self, cx: &mut Context<Self>) -> Div {
+        div().flex_shrink_0().flex().flex_col().gap(px(16.0))
+            .child(div().flex().flex_wrap().items_center().justify_between().gap(px(14.0))
+                .child(div().flex_1().min_w(px(180.0)).flex().flex_col().gap(px(4.0))
+                    .child(ui::section_title("Размещение"))
+                    .child(ui::hint(match self.appearance.preferences.mode {
+                        WallpaperMode::Cover => "Заполнение с обрезкой краёв.",
+                        WallpaperMode::Contain => "Целиком, с полями по краям.",
+                    })))
+                .child(div().p(px(3.0)).rounded(px(8.0)).bg(rgb(ui::BACKGROUND))
+                    .flex().gap(px(2.0))
                     .child(self.appearance_button(AppearanceAction::Cover, cx))
-                    .child(self.appearance_button(AppearanceAction::Contain, cx)))
-                .child(ui::hint(match self.appearance.preferences.mode {
-                    WallpaperMode::Cover => "Без полей. Края изображения могут обрезаться; пропорции сохраняются.",
-                    WallpaperMode::Contain => "Изображение целиком. Свободное место заполняется тёмным фоном.",
-                }))
-                .child(ui::separator().my(px(4.0)))
-                .child(ui::section_title("Затемнение"))
-                .child(div().flex().flex_wrap().gap(px(6.0)).children(
-                    [AppearanceAction::Dim0, AppearanceAction::Dim20, AppearanceAction::Dim40, AppearanceAction::Dim60]
-                        .into_iter().map(|action| self.appearance_button(action, cx))))
-                .child(ui::hint("Только обои — панели и текст остаются светлыми. Выбор сохраняется и без изображения.")))
+                    .child(self.appearance_button(AppearanceAction::Contain, cx))))
+            .child(ui::separator())
+            .child(div().flex().flex_wrap().items_center().justify_between().gap(px(14.0))
+                .child(div().flex_1().min_w(px(180.0)).flex().flex_col().gap(px(4.0))
+                    .child(ui::section_title("Затемнение"))
+                    .child(ui::hint("Только фон, без затемнения текста.")))
+                .child(div().p(px(3.0)).rounded(px(8.0)).bg(rgb(ui::BACKGROUND))
+                    .flex().gap(px(2.0)).children(
+                        [AppearanceAction::Dim0, AppearanceAction::Dim20, AppearanceAction::Dim40, AppearanceAction::Dim60]
+                            .into_iter().map(|action| self.appearance_button(action, cx)))))
+            .child(ui::separator())
             .when_some(self.appearance.preferences_message.clone(), |view, message| {
-                view.child(ui::panel().p(px(14.0)).text_size(px(13.0))
+                view.child(div().text_size(px(13.0)).line_height(px(20.0))
                     .text_color(rgb(ui::SUCCESS)).child(message))
             })
             .when_some(self.appearance.preferences_error.clone(), |view, error| {
-                view.child(ui::panel().p(px(16.0)).bg(rgb(0x332326))
-                    .text_size(px(13.0)).line_height(px(20.0)).text_color(rgb(ui::ERROR))
+                view.child(div().text_size(px(13.0)).line_height(px(20.0)).text_color(rgb(ui::ERROR))
                     .child(format!("{error} Обычные изменения приостановлены. Исправьте файл и перезапустите приложение либо явно сбросьте оформление.")))
             })
-            .child(ui::panel().p(px(22.0)).flex().flex_col().gap(px(12.0))
-                .child(ui::section_title("Вернуть стандартные параметры"))
-                .child(ui::hint("«Заполнить» и 0% затемнения. Обои останутся; повреждённые настройки заменяются только по этой кнопке."))
-                .child(div().flex().flex_wrap()
-                    .child(self.appearance_button(AppearanceAction::Reset, cx))))
+            .child(div().flex().flex_wrap().items_center().justify_between().gap(px(12.0))
+                .child(self.appearance_button(AppearanceAction::Reset, cx))
+                .child(ui::hint("«Заполнить» и 0%. Обои останутся.")
+                    .flex_1().min_w(px(190.0))))
     }
 
 }

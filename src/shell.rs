@@ -135,7 +135,7 @@ impl Shell {
 }
 
 impl Render for Shell {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .id("caligo")
             .key_context("Caligo")
@@ -159,21 +159,18 @@ impl Render for Shell {
             .child(
                 ui::panel()
                     .id("left-panel").overflow_y_scroll()
-                    .w(px(200.0)).flex_shrink_0()
+                    .w(px(180.0)).flex_shrink_0()
                     .m(px(16.0)).p(px(10.0))
                     .flex().flex_col().gap(px(6.0))
                     .bg(rgb(ui::SURFACE))
-                    .child(div().flex_shrink_0().px(px(12.0)).pt(px(10.0)).pb(px(24.0))
-                        .flex().flex_col().gap(px(4.0))
-                        .child(div().text_size(px(23.0)).line_height(px(30.0)).child("Caligo"))
-                        .child(ui::hint("Minecraft Launcher")))
-                    .children(Page::ALL.into_iter().map(|page| self.button(page, cx)))
+                    .child(div().flex_shrink_0().px(px(10.0)).pt(px(10.0)).pb(px(24.0))
+                        .text_size(px(23.0)).line_height(px(30.0)).child("Caligo"))
+                    .children([Page::Home, Page::Builds].into_iter().map(|page| self.button(page, cx)))
                     .when(self.navigation.selected == Page::Builds, |panel| {
                         panel.child(self.builds_sidebar(cx))
                     })
                     .child(div().flex_1().min_h(px(24.0)))
-                    .child(div().flex_shrink_0().px(px(12.0)).pb(px(8.0))
-                        .child(ui::hint("Интерфейс в разработке"))),
+                    .child(self.button(Page::Settings, cx)),
             )
             .when(self.navigation.selected == Page::Home, |root| {
                 root.child(div().flex_1().h_full())
@@ -182,7 +179,7 @@ impl Render for Shell {
                 root.child(self.builds_page(cx))
             })
             .when(self.navigation.selected == Page::Settings, |root| {
-                root.child(self.settings_page(cx))
+                root.child(self.settings_page(window.viewport_size().width >= px(960.0), cx))
             })
             .when_some(self.native_error.clone(), |root, error| {
                 root.child(div().absolute().bottom(px(12.0)).right(px(16.0))
